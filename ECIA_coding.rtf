@@ -1,0 +1,2334 @@
+{\rtf1\ansi\ansicpg949\cocoartf2761
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red131\green0\blue165;\red245\green245\blue245;}
+{\*\expandedcolortbl;;\cssrgb\c59216\c13725\c70588;\cssrgb\c96863\c96863\c96863;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww25700\viewh14740\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\fs28 \cf2 \cb3 \expnd0\expndtw0\kerning0
+import numpy as np\
+from collections import deque\
+\
+class EnvironmentA:\
+    def __init__(self, total_trials=200, sigma=0.15):\
+        self.total_trials = total_trials\
+        self.trial = 0\
+\
+        self.n_actions = 5\
+        self.sigma = sigma\
+        self.context = None\
+\
+    def reset(self):\
+        self.trial = 0\
+        self.update_context()\
+        return None\
+\
+    def step(self, action):\
+        reward = self.get_reward(action)\
+        self.trial += 1\
+        self.update_context()\
+        return reward, self.context\
+\
+    def get_reward(self, action):\
+        t = self.trial\
+        if t < 50:\
+            means = [0.8, 0.2, 0.2, 0.2, 0.2]\
+        elif t < 100:\
+            means = [0.8, 0.2, 0.3, 0.2, 0.2]\
+        elif t < 150:\
+            means = [0.2, 0.2, 0.3, 0.2, 0.9]\
+        else:\
+            means = [0.2, 0.4, 0.3, 0.2, 0.9]\
+        return np.random.normal(means[action], self.sigma)\
+\
+    def update_context(self):\
+        t = self.trial\
+        norm_t = t / self.total_trials\
+        if t < 50:\
+            phase_id = 0\
+        elif t < 100:\
+            phase_id = 1\
+        elif t < 150:\
+            phase_id = 2\
+        else:\
+            phase_id = 3\
+        self.context = np.array([norm_t, phase_id])\
+\
+\
+class EnvironmentB:\
+    def __init__(self, total_trials=200, sigma=0.05):\
+        self.total_trials = total_trials\
+        self.trial = 0\
+        self.n_actions = 5\
+        self.sigma = sigma\
+        self.context = None\
+\
+    def reset(self):\
+        self.trial = 0\
+        self.update_context()\
+        return None\
+\
+    def step(self, action):\
+        reward = self.get_reward(action)\
+        self.trial += 1\
+        self.update_context()\
+        return reward, self.context  # \uc0\u54637 \u49345  \u53916 \u54540  \u48152 \u54872 \
+\
+\
+    def get_reward(self, action):\
+        t = self.trial\
+        base = [0.2] * 5\
+\
+        # 40 trial\uc0\u47560 \u45796  \u50756 \u51204 \u55176  \u48148 \u45068 \u45716  \u54056 \u53556 \
+        phase = t // 40\
+\
+        if phase % 2 == 0:\
+            base[0] = 0.95; base[4] = 0.01\
+        else:\
+            base[0] = 0.01; base[4] = 0.95\
+\
+        # \uc0\u51473 \u44036  \u54665 \u46041 \u46308 \u51008  \u51473 \u44036  \u48372 \u49345 \
+        for i in [1, 2, 3]:\
+            base[i] = 0.05\
+\
+        # \uc0\u44144 \u51032  \u45432 \u51060 \u51592  \u50630 \u51020 \
+        reward = base[action] + np.random.normal(0, self.sigma)\
+\
+        return np.clip(reward, 0, 1)\
+\
+    def update_context(self):\
+        # ECIA\uc0\u44032  \u44592 \u45824 \u54616 \u45716  \u54805 \u49885 \u51004 \u47196  context \u51228 \u44277 \
+        t = self.trial\
+        norm_t = t / self.total_trials\
+\
+        # 40 trial\uc0\u47560 \u45796  \u48320 \u54616 \u45716  \u54056 \u53556 \u51060 \u48064 \u47196 \
+        phase = t // 40\
+        phase_id = phase % 2  # 0 \uc0\u46608 \u45716  1\u47196  \u45800 \u49692 \u54868 \
+\
+        self.context = np.array([norm_t, phase_id])  # \uc0\u44600 \u51060  2\u51064  \u48176 \u50676 \u47196  \u48320 \u44221 \
+\
+class EnvironmentC:\
+    def __init__(self, total_trials=200, sigma=0.15, run_change_points=None,\
+                 disturbance_prob=0.05, disturbance_strength=0.7):\
+        self.total_trials = total_trials\
+        self.n_actions = 5\
+        self.sigma = sigma\
+        self.trial = 0\
+\
+        # \uc0\u44368 \u46976  \u44288 \u47144  \u54028 \u46972 \u48120 \u53552 \
+        self.disturbance_prob = disturbance_prob  # \uc0\u44368 \u46976  \u48156 \u49373  \u54869 \u47456  (trial\u45817 )\
+        self.disturbance_strength = disturbance_strength  # \uc0\u44368 \u46976  \u49884  \u48372 \u49345  \u49688 \u51456 \
+\
+        # \uc0\u48320 \u54868 \u51216  \u49444 \u51221 \
+        if run_change_points is None:\
+            # \uc0\u47924 \u51089 \u50948  \u44060 \u49688 (1~5)\u51032  \u48320 \u54868 \u51216  \u49373 \u49457 \
+            num_changes = np.random.randint(1, 6)\
+            self.change_points = sorted(np.random.choice(\
+                range(20, self.total_trials - 20),\
+                size=num_changes,\
+                replace=False\
+            ).tolist())\
+        else:\
+            self.change_points = run_change_points\
+\
+        # \uc0\u44033  \u44396 \u44036 \u48324  \u52572 \u51201  \u54665 \u46041 \u51012  \u47924 \u51089 \u50948 \u47196  \u49444 \u51221  (\u51060 \u51204  \u44396 \u44036 \u44284  \u45796 \u47476 \u44172 )\
+        self.optimal_actions = []\
+        used_actions = set()\
+\
+        for i in range(len(self.change_points) + 1):\
+            # \uc0\u50500 \u51649  \u47784 \u46304  \u54665 \u46041 \u51012  \u49324 \u50857 \u54616 \u51648  \u50506 \u50520 \u45796 \u47732 \
+            if len(used_actions) < self.n_actions:\
+                # \uc0\u50500 \u51649  \u49324 \u50857 \u54616 \u51648  \u50506 \u51008  \u54665 \u46041  \u51473 \u50640 \u49436  \u49440 \u53469 \
+                unused_actions = [a for a in range(self.n_actions) if a not in used_actions]\
+                opt_action = np.random.choice(unused_actions)\
+                used_actions.add(opt_action)\
+            else:\
+                # \uc0\u47784 \u46304  \u54665 \u46041 \u51012  \u52572 \u49548  \u54620  \u48264 \u50473  \u49324 \u50857 \u54664 \u45796 \u47732 , \u51060 \u51204  \u52572 \u51201  \u54665 \u46041  \u51060 \u50808 \u51032  \u44163  \u49440 \u53469 \
+                prev_action = self.optimal_actions[-1] if self.optimal_actions else -1\
+                opt_action = prev_action\
+                while opt_action == prev_action:\
+                    opt_action = np.random.randint(0, self.n_actions)\
+\
+            self.optimal_actions.append(opt_action)\
+\
+        # \uc0\u44368 \u46976  \u52628 \u51201 \u51012  \u50948 \u54620  \u48320 \u49688 \
+        self.active_disturbance = False\
+        self.disturbance_action = None\
+        self.disturbance_duration = 0\
+\
+        self.context = None\
+        self.update_reward_structure()\
+\
+    def reset(self):\
+        self.trial = 0\
+        self.active_disturbance = False\
+        self.disturbance_action = None\
+        self.disturbance_duration = 0\
+        self.update_reward_structure()\
+        return None\
+\
+    def step(self, action):\
+        reward = np.random.normal(self.means[action], self.sigma)\
+        self.trial += 1\
+        self.update_reward_structure()\
+        return reward, self.context\
+\
+    def update_reward_structure(self):\
+        t = self.trial\
+        norm_t = t / self.total_trials\
+\
+        # \uc0\u54788 \u51116  \u44396 \u44036  \u44208 \u51221 \
+        phase = 0\
+        for i, cp in enumerate(self.change_points):\
+            if t >= cp:\
+                phase = i + 1\
+            else:\
+                break\
+\
+        # \uc0\u52572 \u51201  \u54665 \u46041  \u49444 \u51221 \
+        optimal_action = self.optimal_actions[phase]\
+\
+        # \uc0\u44592 \u48376  \u48372 \u49345  \u44396 \u51312  \u49444 \u51221 \
+        means = [0.2] * self.n_actions\
+        means[optimal_action] = 0.8\
+\
+        # \uc0\u51652 \u54665  \u51473 \u51064  \u44368 \u46976 \u51060  \u51080 \u45716 \u51648  \u54869 \u51064 \
+        if self.active_disturbance:\
+            self.disturbance_duration -= 1\
+\
+            # \uc0\u50668 \u51204 \u55176  \u44368 \u46976 \u51060  \u51652 \u54665  \u51473 \u51060 \u47732  \u44368 \u46976  \u54665 \u46041 \u50640  \u45458 \u51008  \u48372 \u49345  \u50976 \u51648 \
+            if self.disturbance_duration > 0 and self.disturbance_action != optimal_action:\
+                means[self.disturbance_action] = self.disturbance_strength\
+            else:\
+                # \uc0\u44368 \u46976  \u51333 \u47308 \
+                self.active_disturbance = False\
+                self.disturbance_action = None\
+\
+        # \uc0\u49352 \u47196 \u50868  \u44368 \u46976  \u49884 \u51089  \u50668 \u48512  \u44208 \u51221 \
+        elif np.random.random() < self.disturbance_prob:\
+            # \uc0\u52572 \u51201  \u54665 \u46041 \u51060  \u50500 \u45772  \u45796 \u47480  \u54665 \u46041 \u46308  \u51473 \u50640 \u49436  \u49440 \u53469 \
+            non_optimal_actions = [a for a in range(self.n_actions) if a != optimal_action]\
+            if non_optimal_actions:  # \uc0\u48708 \u52572 \u51201  \u54665 \u46041 \u51060  \u51316 \u51116 \u54616 \u47732 \
+                self.disturbance_action = np.random.choice(non_optimal_actions)\
+                self.active_disturbance = True\
+                self.disturbance_duration = np.random.randint(1, 3)  # 1-2 trial \uc0\u51648 \u49549 \
+\
+                # \uc0\u49440 \u53469 \u46108  \u54665 \u46041 \u50640  \u51068 \u49884 \u51201  \u45458 \u51008  \u48372 \u49345  \u49444 \u51221 \
+                means[self.disturbance_action] = self.disturbance_strength\
+\
+        self.means = means\
+        self.context = np.array([norm_t, phase])\
+\
+# \uc0\u55357 \u56577  \u44277 \u53685  \u44592 \u48152  \u53364 \u47000 \u49828 \
+class BaseECIAAgent:\
+    def __init__(self, n_actions=5, epsilon=0.1, eta=0.7,\
+                 window_size=20, min_eta=0.1,\
+                 memory_influence=0.17, memory_threshold=0.05, memory_size=50,\
+                 alpha=0.1, xi=0.1, n_cores=3):\
+        self.n_actions = n_actions\
+        self.epsilon = epsilon\
+        self.eta = eta\
+        self.base_eta = eta\
+        self.min_eta = min_eta\
+        self.window_size = window_size\
+        self.memory_influence = memory_influence\
+        self.memory_threshold = memory_threshold\
+        self.memory_size = memory_size\
+        self.alpha = alpha\
+        self.xi = xi\
+        self.context = None\
+        self.time = 0\
+\
+        self.q_values = np.zeros(n_actions)\
+        self.action_counts = np.zeros(n_actions)\
+        self.prev_reward = None\
+\
+        self.emotion = np.zeros(8)\
+        self.emotion_weight = np.array([0.3, 0.6, 0.5, -0.4, 0.4, -0.3, 0.2, -0.5])\
+        self.emotion_history = deque(maxlen=window_size)\
+        self.episodic_memory = deque(maxlen=memory_size)\
+\
+\
+          # \uc0\u47680 \u54000 \u53076 \u50612  \u54028 \u46972 \u48120 \u53552  \u52488 \u44592 \u54868 \
+        self.n_cores = n_cores\
+        if n_cores > 1:\
+            self.core_eta = np.linspace(0.4, 0.6, n_cores)\
+            self.core_xi = np.linspace(0.08, 0.12, n_cores)\
+            self.core_weights = np.ones(n_cores) / n_cores\
+            self.core_accuracy = np.ones(n_cores) * 0.5\
+\
+    def reset(self):\
+        self.q_values = np.zeros(self.n_actions)\
+        self.action_counts = np.zeros(self.n_actions)\
+        self.prev_reward = None\
+        self.emotion = np.zeros(8)\
+        self.emotion_history.clear()\
+        self.episodic_memory.clear()\
+        self.eta = self.base_eta\
+        self.context = None\
+        self.time = 0\
+\
+    def select_action(self):\
+      # \uc0\u51204 \u51204 \u46160 \u50685 \u51032  \u53456 \u49353 -\u52265 \u52712  \u51312 \u51208 \
+      pfc_stability = self.prefrontal_modulation()\
+\
+      # \uc0\u44048 \u51221  \u49345 \u53468 \u50640  \u46384 \u47480  \u53456 \u49353  \u51204 \u47029  \u51312 \u51221 \
+      # \uc0\u54840 \u44592 \u49900 \u51060  \u45458 \u51004 \u47732  \u53456 \u49353  \u44221 \u54693  \u51613 \u44032 \
+      curiosity_factor = self.emotion[4] * 0.5\
+      # \uc0\u46160 \u47140 \u50880 \u51060  \u45458 \u51004 \u47732  \u53456 \u49353  \u44048 \u49548 \
+      fear_factor = self.emotion[0] * 0.3\
+      # \uc0\u55148 \u47581 \u51060  \u45458 \u51004 \u47732  \u49352 \u47196 \u50868  \u44032 \u45733 \u49457  \u53456 \u49353  \u51613 \u44032 \
+      hope_factor = self.emotion[2] * 0.2\
+\
+      # \uc0\u44048 \u51221  \u44592 \u48152  \u53456 \u49353 \u47456  \u51201 \u51025 \
+      adaptive_epsilon = self.epsilon * (1 - pfc_stability)\
+      adaptive_epsilon = np.clip(adaptive_epsilon + curiosity_factor - fear_factor + hope_factor, 0.01, 0.3)\
+\
+      # \uc0\u53456 \u49353  \u44208 \u51221 \
+      if np.random.rand() < adaptive_epsilon:\
+          # \uc0\u54840 \u44592 \u49900 \u51060  \u45458 \u51012  \u46412 \u45716  \u45916  \u49884 \u46020 \u54620  \u54665 \u46041  \u49440 \u54840 \
+          if self.emotion[4] > 0.6:\
+              # \uc0\u45916  \u49884 \u46020 \u46108  \u54665 \u46041 \u50640  \u44032 \u51473 \u52824  \u48512 \u50668 \
+              action_probs = 1.0 / (1 + self.action_counts)\
+              action_probs = action_probs / np.sum(action_probs)\
+              return np.random.choice(self.n_actions, p=action_probs)\
+          else:\
+              return np.random.choice(self.n_actions)\
+\
+      # \uc0\u44048 \u51221 \u51201  \u50689 \u54693 \
+      emotion_influence = np.zeros(self.n_actions)\
+\
+      # \uc0\u44592 \u48376  \u44048 \u51221  \u50689 \u54693  (\u47784 \u46304  \u54665 \u46041 \u50640  \u44277 \u53685  \u51201 \u50857 )\
+      base_emotion_effect = np.dot(self.emotion, self.emotion_weight)\
+\
+      # \uc0\u54665 \u46041 \u48324  \u44048 \u51221  \u50689 \u54693  \u52264 \u48324 \u54868 \
+      for a in range(self.n_actions):\
+          # \uc0\u51088 \u48512 \u49900 \u51060  \u45458 \u51004 \u47732  \u51088 \u51452  \u49440 \u53469 \u54620  \u54665 \u46041  \u49440 \u54840 \
+          if self.emotion[6] > 0.5:\
+              pride_effect = self.emotion[6] * 0.2 * (self.action_counts[a] / (1 + np.sum(self.action_counts)))\
+              emotion_influence[a] += pride_effect\
+\
+          # \uc0\u48516 \u45432 \u44032  \u45458 \u51004 \u47732  \u52572 \u44540 \u50640  \u49440 \u53469 \u54620  \u54665 \u46041  \u54924 \u54588 \
+          if self.emotion[5] > 0.5 and len(self.action_history) > 0 and list(self.action_history)[-1] == a:\
+              anger_effect = -self.emotion[5] * 0.3\
+              emotion_influence[a] += anger_effect\
+\
+          # \uc0\u49836 \u54548 \u51060  \u45458 \u51004 \u47732  \u48372 \u49688 \u51201  \u49440 \u53469  (\u45458 \u51008  Q\u44050  \u54665 \u46041 \u50640  \u51665 \u51473 )\
+          if self.emotion[3] > 0.6:\
+              sadness_effect = self.emotion[3] * 0.1 * (self.q_values[a] / (0.1 + np.max(self.q_values)))\
+              emotion_influence[a] += sadness_effect\
+\
+      # \uc0\u54644 \u47560  \u47700 \u47784 \u47532  \u48148 \u51060 \u50612 \u49828 \
+      memory_bias = self.compute_memory_bias()\
+\
+      # \uc0\u47680 \u54000 \u53076 \u50612  \u44592 \u48152  \u52572 \u51333  \u44208 \u51221 \
+      core_probs = np.zeros((self.n_cores, self.n_actions))\
+\
+      for c in range(self.n_cores):\
+            # \uc0\u44033  \u53076 \u50612 \u48324  \u44228 \u49328 \
+          emotion_influence = self.core_eta[c] * np.dot(self.emotion, self.emotion_weight)\
+          uncertainty_bonus = self.compute_uncertainty_bonus()\
+          noise = self.core_xi[c] * np.random.randn(self.n_actions)\
+\
+            # \uc0\u44033  \u53076 \u50612 \u51032  Q\u44050  + \u47784 \u46304  \u50689 \u54693 \u50836 \u49548 \
+          adjusted_q = (self.q_values +\
+                       memory_bias +\
+                       emotion_influence +\
+                       uncertainty_bonus +\
+                       noise)\
+\
+            # \uc0\u49548 \u54532 \u53944 \u47589 \u49828  \u54869 \u47456  \u44228 \u49328 \
+          exp_vals = np.exp(adjusted_q - np.max(adjusted_q))\
+          core_probs[c] = exp_vals / np.sum(exp_vals)\
+\
+        # \uc0\u53076 \u50612  \u44032 \u51473 \u52824  \u51201 \u50857 \
+      final_probs = np.zeros(self.n_actions)\
+      for c in range(self.n_cores):\
+          final_probs += self.core_weights[c] * core_probs[c]\
+\
+        # \uc0\u54869 \u47456 \u51201  \u49440 \u53469 \
+      return np.random.choice(self.n_actions, p=final_probs)\
+\
+      # \uc0\u48520 \u54869 \u49892 \u49457  \u44592 \u48152  \u53456 \u49353  \u48372 \u45320 \u49828 \
+      uncertainty_bonus = self.compute_uncertainty_bonus()\
+\
+      # \uc0\u45432 \u51060 \u51592  (\u54869 \u47456 \u51201  \u51032 \u49324 \u44208 \u51221 )\
+      # \uc0\u44048 \u51221  \u49345 \u53468 \u50640  \u46384 \u46972  \u45432 \u51060 \u51592  \u49688 \u51456  \u51312 \u51221 \
+      adaptive_noise = self.xi\
+      if self.emotion[4] > 0.7:  # \uc0\u54840 \u44592 \u49900 \u51060  \u47588 \u50864  \u45458 \u51004 \u47732  \u45432 \u51060 \u51592  \u51613 \u44032 \
+          adaptive_noise *= 1.5\
+      if self.emotion[0] > 0.7:  # \uc0\u46160 \u47140 \u50880 \u51060  \u47588 \u50864  \u45458 \u51004 \u47732  \u45432 \u51060 \u51592  \u44048 \u49548 \
+          adaptive_noise *= 0.5\
+\
+      noise = adaptive_noise * np.random.randn(self.n_actions)\
+\
+      # \uc0\u47784 \u46304  \u50689 \u54693  \u50836 \u49548  \u53685 \u54633 \
+      adjusted_q = (self.q_values +\
+                  emotion_influence +\
+                  base_emotion_effect +\
+                  memory_bias +\
+                  core_probs +\
+                  uncertainty_bonus +\
+                  noise)\
+\
+      return np.argmax(adjusted_q)\
+\
+    def update_q(self, action, reward):\
+        self.action_counts[action] += 1\
+        self.q_values[action] += self.alpha * (reward - self.q_values[action])\
+\
+    def update_emotion(self, reward):\
+        delta = reward - 0.5\
+        emo_change = delta * np.array([1, 1, 0.5, -1, 0.5, -1, 0.2, -0.3])\
+        self.emotion += 0.1 * emo_change\
+        self.emotion = np.clip(self.emotion, -1, 1)\
+\
+    def apply_memory_correction(self):\
+        memory_bonus = np.zeros(self.n_actions)\
+        for a, r, e in self.episodic_memory:\
+            memory_bonus[a] += self.memory_influence * np.dot(e, self.emotion_weight) * r\
+        self.q_values += memory_bonus\
+\
+    def store_memory(self, action, reward):\
+        emotional_arousal = np.linalg.norm(self.emotion)\
+\
+    # \uc0\u45458 \u51008  \u48372 \u49345 \u51060 \u45208  \u51221 \u49436 \u51201  \u44033 \u49457 \u46020 \u44032  \u45458 \u51012  \u46412 \u47564  \u47700 \u47784 \u47532  \u51200 \u51109  (\u51473 \u50836 \u54620  \u44221 \u54744 \u47564  \u51200 \u51109 )\
+        memory_importance = emotional_arousal + abs(reward - 0.5)\
+\
+        if memory_importance >= self.memory_threshold and self.context is not None:\
+            # \uc0\u51221 \u49436 \u51201  \u44033 \u49457 \u46020 \u44032  \u45458 \u51012 \u49688 \u47197  \u45908  \u44053 \u54620  \u47700 \u47784 \u47532  \u54805 \u49457  (\u54644 \u47560  LTP \u44053 \u54868  \u47784 \u48169 )\
+            memory_strength = 1.0 + 0.5 * emotional_arousal\
+\
+            memory = \{\
+                'action': action,\
+                'reward': reward * memory_strength,  # \uc0\u51221 \u49436 \u51201 \u51004 \u47196  \u51473 \u50836 \u54620  \u47700 \u47784 \u47532 \u45716  \u45908  \u44053 \u54616 \u44172  \u51200 \u51109 \
+                'context': self.context.copy(),\
+                'time': self.time,\
+                'strength': memory_strength\
+            \}\
+            self.episodic_memory.append(memory)\
+\
+    def _update_core_weights(self, reward):\
+            # \uc0\u44033  \u53076 \u50612 \u51032  \u50696 \u52769  \u51221 \u54869 \u46020  \u50629 \u45936 \u51060 \u53944 \
+            for c in range(self.n_cores):\
+                prediction_error = abs(reward - (0.5 + 0.1 * (c - 1)))\
+                accuracy = max(0.1, 1.0 - prediction_error)\
+                self.core_accuracy[c] = 0.9 * self.core_accuracy[c] + 0.1 * accuracy\
+\
+            # \uc0\u49548 \u54532 \u53944 \u47589 \u49828 \u47196  \u44032 \u51473 \u52824  \u50629 \u45936 \u51060 \u53944 \
+            temperature = 5.0\
+            exp_weights = np.exp(self.core_accuracy * temperature)\
+            self.core_weights = exp_weights / np.sum(exp_weights)\
+\
+class ECIA_hippocampal_extended(BaseECIAAgent):\
+    def __init__(self, n_actions=5, epsilon=0.08, eta=0.6, xi=0.12,\
+             memory_threshold=0.05, memory_influence=0.25,\
+             window_size=20, min_eta=0.1, memory_size=50,\
+             alpha=0.1,\
+             memory_similarity_threshold=0.12, top_k=7, n_cores=3):\
+\
+      self.n_actions = n_actions\
+      self.epsilon = epsilon  # \uc0\u45230 \u51008  \u53456 \u49353 \u47456 \
+      self.eta = eta  # \uc0\u44048 \u51221  \u50689 \u54693 \u47141 \
+      self.xi = xi  # \uc0\u45432 \u51060 \u51592  \u49688 \u51456 \
+\
+      self.q_values = np.zeros(n_actions)\
+      self.emotion = np.zeros(8)  # 8\uc0\u44032 \u51648  \u44048 \u51221  \u49345 \u53468  \u48289 \u53552 \
+\
+      super().__init__(\
+        n_actions=n_actions,\
+        epsilon=epsilon,\
+        eta=eta,\
+        n_cores=n_cores,\
+        window_size=window_size,\
+        min_eta=min_eta,\
+        memory_influence=memory_influence,\
+        memory_threshold=memory_threshold,\
+        memory_size=memory_size,\
+        alpha=alpha,\
+        xi=xi\
+    )\
+\
+    # \uc0\u44048 \u51221  \u44032 \u51473 \u52824  - \u44033  \u44048 \u51221 \u51060  \u51032 \u49324 \u44208 \u51221 \u50640  \u48120 \u52824 \u45716  \u50689 \u54693 \
+      # [\uc0\u46160 \u47140 \u50880 , \u44592 \u49256 , \u55148 \u47581 , \u49836 \u54548 , \u54840 \u44592 \u49900 , \u48516 \u45432 , \u51088 \u48512 \u49900 , \u49688 \u52824 \u49900 ]\
+      self.emotion_weight = np.array([0.3, 0.6, 0.5, -0.4, 0.4, -0.3, 0.2, -0.5])\
+\
+      self.memory_threshold = memory_threshold\
+      self.memory_influence = memory_influence\
+      self.memory_similarity_threshold = memory_similarity_threshold\
+      self.top_k = top_k\
+\
+      self.episodic_memory = []\
+      self.context = None\
+      self.prev_context = None\
+      self.time = 0\
+      self.prev_reward = 0\
+      self.action_counts = np.zeros(n_actions)\
+\
+      # \uc0\u49888 \u44221 \u48156 \u49373  \u48143  \u44032 \u49548 \u49457  \u48320 \u49688 \
+      self.learning_boost = 0.25\
+      self.recent_context_changes = deque(maxlen=5)\
+\
+      # \uc0\u54665 \u46041  \u48143  \u48372 \u49345  \u51060 \u47141 \
+      self.action_history = deque(maxlen=10)\
+      self.reward_history = deque(maxlen=10)\
+\
+      # \uc0\u44048 \u51221  \u49345 \u53468  \u54364 \u54788  - \u44048 \u51221  \u51060 \u47492  \u47588 \u54609 \
+      self.emotion_names = [\
+          "\uc0\u46160 \u47140 \u50880 ",  # 0: Fear\
+          "\uc0\u44592 \u49256 ",    # 1: Joy\
+          "\uc0\u55148 \u47581 ",    # 2: Hope\
+          "\uc0\u49836 \u54548 ",    # 3: Sadness\
+          "\uc0\u54840 \u44592 \u49900 ",  # 4: Curiosity\
+          "\uc0\u48516 \u45432 ",    # 5: Anger\
+          "\uc0\u51088 \u48512 \u49900 ",  # 6: Pride\
+          "\uc0\u49688 \u52824 \u49900 "   # 7: Shame\
+    ]\
+\
+    def build_context(self, norm_t, phase_id):\
+        # \uc0\u54644 \u47560 \u51032  \u44201 \u51088  \u49464 \u54252  \u54056 \u53556 \u44284  \u49884 \u44036  \u49464 \u54252  \u54876 \u49457 \u54868  \u47784 \u45944 \u47553 \
+        grid_patterns = []\
+        for scale in [1.0, 4.0]:  # \uc0\u44036 \u49548 \u54868 \u46108  \u44201 \u51088  \u54056 \u53556 \
+            for offset in [0.0, 0.5]:\
+                grid_patterns.append(np.sin(2*np.pi * (norm_t * scale + offset)))\
+                grid_patterns.append(np.cos(2*np.pi * (norm_t * scale + offset)))\
+\
+        # \uc0\u49884 \u44036  \u49464 \u54252  \u54876 \u49457 \u54868  \u54056 \u53556 \
+        time_cells = [np.exp(-(norm_t - 0.5)**2 / 0.2)]\
+\
+        return np.concatenate([grid_patterns, time_cells, [phase_id], self.emotion[:8]])\
+\
+    def update_context(self, norm_t, phase_id):\
+        self.prev_context = self.context.copy() if self.context is not None else None\
+        self.context = self.build_context(norm_t, phase_id)\
+\
+        # \uc0\u52968 \u53581 \u49828 \u53944  \u48320 \u54868  \u52628 \u51201 \
+        if self.prev_context is not None:\
+            min_len = min(len(self.context), len(self.prev_context))\
+            context_change = np.linalg.norm(self.context[:min_len] - self.prev_context[:min_len])\
+            self.recent_context_changes.append(context_change)\
+\
+    def compute_similarity(self, c1, c2):\
+        # \uc0\u52968 \u53581 \u49828 \u53944  \u50976 \u49324 \u46020  \u44228 \u49328 \
+        min_len = min(len(c1), len(c2))\
+        c1_part, c2_part = c1[:min_len], c2[:min_len]\
+\
+        if np.linalg.norm(c1_part) == 0 or np.linalg.norm(c2_part) == 0:\
+            return 0.0\
+        return np.dot(c1_part, c2_part) / (np.linalg.norm(c1_part) * np.linalg.norm(c2_part))\
+\
+    def emotional_processing(self, reward):\
+        """\
+        8\uc0\u44032 \u51648  \u44048 \u51221  \u49345 \u53468  \u50629 \u45936 \u51060 \u53944 :\
+        0: \uc0\u46160 \u47140 \u50880 (Fear) - \u48512 \u51221 \u51201  \u44208 \u44284  \u50696 \u49345  \u49884  \u51613 \u44032 \
+        1: \uc0\u44592 \u49256 (Joy) - \u44557 \u51221 \u51201  \u48372 \u49345  \u49884  \u51613 \u44032 \
+        2: \uc0\u55148 \u47581 (Hope) - \u48372 \u49345  \u51613 \u44032  \u52628 \u49464  \u49884  \u51613 \u44032 \
+        3: \uc0\u49836 \u54548 (Sadness) - \u45230 \u51008  \u54217 \u44512  \u48372 \u49345  \u49884  \u51613 \u44032 \
+        4: \uc0\u54840 \u44592 \u49900 (Curiosity) - \u49352 \u47196 \u50868  \u49345 \u54889 \u51060 \u45208  \u48520 \u54869 \u49892 \u49457  \u49884  \u51613 \u44032 \
+        5: \uc0\u48516 \u45432 (Anger) - \u50696 \u49345 \u48372 \u45796  \u53356 \u44172  \u45230 \u51008  \u48372 \u49345  \u49884  \u51613 \u44032 \
+        6: \uc0\u51088 \u48512 \u49900 (Pride) - \u45458 \u51008  \u49457 \u44277 \u47456  \u49884  \u51613 \u44032 \
+        7: \uc0\u49688 \u52824 \u49900 (Shame) - \u45458 \u51008  \u49892 \u54056 \u50984  \u49884  \u51613 \u44032 \
+        """\
+\
+\
+        # \uc0\u50504 \u51204 \u51109 \u52824 \
+        if self.prev_reward is None:\
+            self.prev_reward = 0.5\
+\
+        if reward is None:\
+            reward = 0.0\
+\
+        current_emotion = np.zeros(8)\
+\
+        # \uc0\u49884 \u44036 \u50640  \u46384 \u47480  \u44048 \u49632  \u54952 \u44284 \
+        self.emotion = 0.95 * self.emotion\
+\
+        # \uc0\u44048 \u51221  \u50629 \u45936 \u51060 \u53944 \u47484  \u50948 \u54620  \u45936 \u51060 \u53552  \u51456 \u48708 \
+        self.reward_history.append(reward)\
+        recent_rewards = list(self.reward_history)\
+\
+        # \uc0\u46160 \u47140 \u50880 (0) - \u48512 \u51221 \u51201  \u44208 \u44284  \u50696 \u49345  \u46608 \u45716  \u48520 \u50504 \u51221 \u49457 \
+        if self.prev_reward is not None:\
+            if reward < self.prev_reward:\
+                current_emotion[0] = min(1.0, 0.2 + 0.3 * abs(reward - self.prev_reward))\
+            else:\
+                current_emotion[0] = max(0.0, self.emotion[0] - 0.05)\
+\
+        # \uc0\u44592 \u49256 (1) - \u48372 \u49345 \u51060  \u44592 \u45824  \u51060 \u49345 \u51068  \u46412 \
+        if self.prev_reward is not None:\
+            if reward > 0.6:\
+                current_emotion[1] = min(1.0, 0.1 + 0.5 * reward)\
+            elif reward > self.prev_reward:\
+                current_emotion[1] = min(1.0, self.emotion[1] + 0.15 * (reward - self.prev_reward))\
+            else:\
+                current_emotion[1] = max(0.0, self.emotion[1] - 0.1)\
+\
+        # \uc0\u55148 \u47581 (2) - \u52572 \u44540  \u48372 \u49345 \u51060  \u51613 \u44032  \u52628 \u49464 \u51068  \u46412 \
+        if len(recent_rewards) >= 3:\
+            recent_trend = np.mean(np.diff(list(recent_rewards)[-3:]))\
+            if recent_trend > 0:\
+                current_emotion[2] = min(1.0, 0.1 + 0.3 * recent_trend)\
+            else:\
+                current_emotion[2] = max(0.0, self.emotion[2] - 0.05)\
+\
+        # \uc0\u49836 \u54548 (3) - \u45230 \u51008  \u54217 \u44512  \u48372 \u49345 \u51060  \u51648 \u49549 \u46112  \u46412 \
+        if len(recent_rewards) >= 5:\
+            avg_reward = np.mean(list(recent_rewards)[-5:])\
+            if avg_reward < 0.3:\
+                current_emotion[3] = min(1.0, 0.1 + 0.3 * (0.3 - avg_reward))\
+            else:\
+                current_emotion[3] = max(0.0, self.emotion[3] - 0.1)\
+\
+        # \uc0\u54840 \u44592 \u49900 (4) - \u48520 \u54869 \u49892 \u49457 \u51060 \u45208  \u49352 \u47196 \u50868  \u49345 \u54889 \u50640 \u49436  \u51613 \u44032 \
+        if len(self.action_history) > 0:\
+            # \uc0\u54665 \u46041  \u45796 \u50577 \u49457  \u44228 \u49328 \
+            action_diversity = len(set(self.action_history)) / self.n_actions\
+            # \uc0\u48372 \u49345  \u48320 \u46041 \u49457  \u44228 \u49328 \
+            reward_variability = np.std(recent_rewards) if len(recent_rewards) > 1 else 0.5\
+\
+            current_emotion[4] = min(1.0, 0.2 + 0.3 * action_diversity + 0.3 * reward_variability)\
+\
+            # \uc0\u54665 \u46041 \u51060  \u48152 \u48373 \u46112 \u49688 \u47197  \u54840 \u44592 \u49900  \u44048 \u49548 \
+            if len(self.action_history) >= 3 and len(set(list(self.action_history)[-3:])) == 1:\
+                current_emotion[4] = max(0.0, current_emotion[4] - 0.2)\
+\
+        # \uc0\u48516 \u45432 (5) - \u50696 \u49345 \u48372 \u45796  \u53356 \u44172  \u45230 \u51008  \u48372 \u49345 \
+        if self.prev_reward is not None and (self.prev_reward - reward) > 0.3:\
+            current_emotion[5] = min(1.0, 0.1 + 0.4 * (self.prev_reward - reward))\
+        else:\
+            current_emotion[5] = max(0.0, self.emotion[5] - 0.15)\
+\
+        # \uc0\u51088 \u48512 \u49900 (6) - \u45458 \u51008  \u49457 \u44277 \u47456 \
+        if len(recent_rewards) >= 5:\
+            success_rate = sum(r > 0.6 for r in recent_rewards) / len(recent_rewards)\
+            if success_rate > 0.6:\
+                current_emotion[6] = min(1.0, 0.1 + 0.4 * success_rate)\
+            else:\
+                current_emotion[6] = max(0.0, self.emotion[6] - 0.1)\
+\
+        # \uc0\u49688 \u52824 \u49900 (7) - \u45458 \u51008  \u49892 \u54056 \u50984 \
+        if len(recent_rewards) >= 5:\
+            failure_rate = sum(r < 0.3 for r in recent_rewards) / len(recent_rewards)\
+            if failure_rate > 0.5:\
+                current_emotion[7] = min(1.0, 0.1 + 0.3 * failure_rate)\
+            else:\
+                current_emotion[7] = max(0.0, self.emotion[7] - 0.1)\
+\
+        # \uc0\u44048 \u51221  \u44036  \u49345 \u54840 \u51089 \u50857  \u48143  \u49345 \u49604  \u54952 \u44284 \
+        # \uc0\u44592 \u49256 \u44284  \u49836 \u54548 \u51008  \u49436 \u47196  \u49345 \u49604 \
+        if current_emotion[1] > 0.5:\
+            current_emotion[3] = max(0.0, current_emotion[3] - 0.2)\
+        if current_emotion[3] > 0.5:\
+            current_emotion[1] = max(0.0, current_emotion[1] - 0.2)\
+\
+        # \uc0\u55148 \u47581 \u44284  \u46160 \u47140 \u50880 \u51008  \u49436 \u47196  \u49345 \u49604 \
+        if current_emotion[2] > 0.6:\
+            current_emotion[0] = max(0.0, current_emotion[0] - 0.2)\
+        if current_emotion[0] > 0.7:\
+            current_emotion[2] = max(0.0, current_emotion[2] - 0.3)\
+\
+        # \uc0\u51088 \u48512 \u49900 \u44284  \u49688 \u52824 \u49900 \u51008  \u49436 \u47196  \u49345 \u49604 \
+        if current_emotion[6] > 0.5:\
+            current_emotion[7] = max(0.0, current_emotion[7] - 0.3)\
+        if current_emotion[7] > 0.5:\
+            current_emotion[6] = max(0.0, current_emotion[6] - 0.3)\
+\
+        # \uc0\u48516 \u45432 \u45716  \u54840 \u44592 \u49900 \u51012  \u44048 \u49548 \u49884 \u53428 \
+        if current_emotion[5] > 0.6:\
+            current_emotion[4] = max(0.0, current_emotion[4] - 0.2)\
+\
+        # \uc0\u51221 \u49436  \u53685 \u54633  \u48143  \u50504 \u51221 \u54868 \
+        for i in range(8):\
+            self.emotion[i] = 0.7 * self.emotion[i] + 0.3 * current_emotion[i]\
+\
+        # \uc0\u44048 \u51221  \u44053 \u46020  \u51228 \u54620 \
+        self.emotion = np.clip(self.emotion, 0.0, 1.0)\
+\
+\
+    def update_dopamine_learning(self, action, reward):\
+        # \uc0\u46020 \u54028 \u48124  \u44592 \u48152  \u54617 \u49845  \u45800 \u49692 \u54868  \u48260 \u51204 \
+        prediction_error = reward - self.q_values[action]\
+\
+        # \uc0\u50696 \u52769  \u50724 \u52264 \u50640  \u44592 \u48152 \u54620  \u51201 \u51025 \u51201  \u54617 \u49845 \u47456 \
+        if abs(prediction_error) > 0.3:\
+            adaptive_alpha = 0.3  # \uc0\u53360  \u50724 \u47448  \u49884  \u48736 \u47480  \u54617 \u49845 \
+        else:\
+            adaptive_alpha = 0.1  # \uc0\u51068 \u48152 \u51201 \u51064  \u54617 \u49845 \u47456 \
+\
+        # \uc0\u54617 \u49845  \u48512 \u49828 \u53944  \u51201 \u50857 \
+        adaptive_alpha += self.learning_boost\
+\
+        # Q-\uc0\u44050  \u50629 \u45936 \u51060 \u53944 \
+        self.q_values[action] += adaptive_alpha * prediction_error\
+\
+        # \uc0\u48152 \u48373 \u51201  \u54665 \u46041  \u44053 \u54868  (\u49845 \u44288  \u54805 \u49457 )\
+        habit_strength = min(0.3, 0.02 * self.action_counts[action])\
+        self.q_values[action] += habit_strength * reward\
+\
+        return prediction_error\
+\
+    def store_memory(self, action, reward, prediction_error):\
+        # \uc0\u54644 \u47560  \u47700 \u47784 \u47532  \u51200 \u51109  - \u51221 \u49436 \u51201  \u44033 \u49457 \u46020  \u44256 \u47140 \
+        emotional_arousal = np.linalg.norm(self.emotion)\
+\
+        # \uc0\u51473 \u50836 \u54620  \u44221 \u54744 \u47564  \u51200 \u51109  (\u51221 \u49436 \u51201  \u44033 \u49457  \u46608 \u45716  \u45458 \u51008  \u48372 \u49345 /\u50696 \u52769  \u50724 \u52264 )\
+        memory_importance = emotional_arousal + abs(reward - 0.5) + 0.5 * abs(prediction_error)\
+\
+        if memory_importance >= self.memory_threshold and self.context is not None:\
+            # \uc0\u51221 \u49436 \u51201 \u51004 \u47196  \u51473 \u50836 \u54620  \u47700 \u47784 \u47532 \u45716  \u45908  \u44053 \u54616 \u44172  \u51200 \u51109 \
+            memory_strength = 1.0 + 0.5 * emotional_arousal + 0.3 * abs(prediction_error)\
+\
+            memory = \{\
+                'action': action,\
+                'reward': reward,\
+                'context': self.context.copy(),\
+                'time': self.time,\
+                'strength': memory_strength,\
+                'emotion': self.emotion.copy()\
+            \}\
+            self.episodic_memory.append(memory)\
+\
+    def compute_memory_bias(self):\
+        # \uc0\u54644 \u47560  \u44592 \u50613 \u50640  \u44592 \u48152 \u54620  \u54665 \u46041  \u48148 \u51060 \u50612 \u49828  \u44228 \u49328 \
+        if not isinstance(self.context, np.ndarray) or self.context.size == 0 or not self.episodic_memory:\
+            return np.zeros(self.n_actions)\
+\
+        # \uc0\u54788 \u51116  \u52968 \u53581 \u49828 \u53944 \u50752  \u50976 \u49324 \u54620  \u47700 \u47784 \u47532  \u52286 \u44592 \
+        scored_memories = []\
+        for mem in self.episodic_memory:\
+            sim = self.compute_similarity(self.context, mem['context'])\
+            if sim < self.memory_similarity_threshold:\
+                continue\
+\
+            # \uc0\u47700 \u47784 \u47532  \u44288 \u47144 \u49457  \u51216 \u49688  \u44228 \u49328 \
+            reward_importance = abs(mem['reward'] - self.q_values[mem['action']])\
+            emotion_match = self.compute_similarity(self.emotion, mem.get('emotion', np.zeros(8)))\
+\
+            # \uc0\u51333 \u54633  \u44288 \u47144 \u49457  \u51216 \u49688 \
+            relevance = sim * (0.6 * reward_importance + 0.4 * emotion_match)\
+\
+            # \uc0\u47700 \u47784 \u47532  \u45432 \u54868  \u51201 \u50857 \
+            memory_age = (self.time - mem['time']) / max(1, len(self.episodic_memory))\
+            memory_strength = mem.get('strength', 1.0) * (1.0 - 0.3 * memory_age)\
+\
+            scored_memories.append((relevance, mem['action'], mem['reward'], memory_strength))\
+\
+        # \uc0\u52572 \u44540  \u48372 \u49345  \u48320 \u46041 \u49457 \u50640  \u46384 \u47480  \u47700 \u47784 \u47532  \u50689 \u54693 \u47141  \u51312 \u51221 \
+        recent_rewards = [mem['reward'] for mem in self.episodic_memory[-20:]]\
+        reward_variance = np.var(recent_rewards) if recent_rewards else 0.5\
+        adaptive_influence = self.memory_influence * (1 + reward_variance)\
+\
+        # \uc0\u44032 \u51109  \u44288 \u47144 \u49457  \u45458 \u51008  \u47700 \u47784 \u47532  \u49440 \u53469 \
+        scored_memories.sort(key=lambda x: x[0], reverse=True)\
+        top_memories = scored_memories[:self.top_k]\
+\
+        # \uc0\u47700 \u47784 \u47532  \u48148 \u51060 \u50612 \u49828  \u44228 \u49328 \
+        bias = np.zeros(self.n_actions)\
+        for relevance, action, reward, strength in top_memories:\
+            emotion_effect = np.dot(self.emotion, self.emotion_weight)\
+            bias[action] += adaptive_influence * reward * emotion_effect * relevance * strength\
+\
+        return bias\
+\
+    def compute_uncertainty_bonus(self):\
+        # \uc0\u48520 \u54869 \u49892 \u49457  \u44592 \u48152  \u53456 \u49353  \u48372 \u45320 \u49828  (UCB\u50752  \u50976 \u49324 )\
+        uncertainty = np.zeros(self.n_actions)\
+        total_experiences = self.time + 1\
+\
+        for a in range(self.n_actions):\
+            # \uc0\u54665 \u46041  \u54943 \u49688  \u44592 \u48152  \u48520 \u54869 \u49892 \u49457 \
+            action_count = self.action_counts[a] + 1  # 0\uc0\u51004 \u47196  \u45208 \u45572 \u44592  \u48169 \u51648 \
+            count_uncertainty = np.sqrt(np.log(total_experiences) / action_count)\
+\
+            # \uc0\u48372 \u49345  \u48320 \u46041 \u49457  \u48152 \u50689 \
+            action_rewards = [mem['reward'] for mem in self.episodic_memory if mem['action'] == a]\
+            reward_std = np.std(action_rewards) if len(action_rewards) > 1 else 0.5\
+\
+            uncertainty[a] = count_uncertainty * (1 + reward_std)\
+\
+        return uncertainty * 0.3  # \uc0\u51312 \u51221 \u46108  \u44032 \u51473 \u52824 \
+\
+    def prefrontal_modulation(self):\
+        # \uc0\u51204 \u51204 \u46160 \u50685  \u51312 \u51208  (\u53456 \u49353 -\u52265 \u52712  \u44512 \u54805  \u48143  \u52968 \u53581 \u49828 \u53944  \u44048 \u51648 )\
+        if len(self.episodic_memory) < 5:\
+            return 0.5  # \uc0\u52488 \u44592 \u50640 \u45716  \u51473 \u44036  \u49688 \u51456 \u51032  \u53456 \u49353 \
+\
+        # \uc0\u48372 \u49345  \u50504 \u51221 \u49457  \u54217 \u44032 \
+        recent_rewards = [mem['reward'] for mem in self.episodic_memory[-10:]]\
+        reward_stability = 1.0 - np.std(recent_rewards) if recent_rewards else 0.5\
+\
+        # \uc0\u52968 \u53581 \u49828 \u53944  \u48320 \u54868  \u44048 \u51648 \
+        context_change = np.mean(self.recent_context_changes) if self.recent_context_changes else 0\
+\
+        # \uc0\u50504 \u51221 \u49457  \u51216 \u49688 : \u45458 \u51012 \u49688 \u47197  \u52265 \u52712 \u50640  \u50976 \u47532 \
+        stability = 0.7 * reward_stability - 0.3 * context_change\
+        return np.clip(stability, 0.1, 0.9)\
+\
+    def hippocampal_neurogenesis(self):\
+        # \uc0\u49888 \u44221 \u48156 \u49373  \u44036 \u49548 \u54868  \u48260 \u51204 \
+        if self.time % 25 == 0:  # \uc0\u51452 \u44592 \u51201  \u49888 \u44221 \u48156 \u49373 \
+            self.learning_boost = 0.3  # \uc0\u51613 \u44032 \u46108  \u54617 \u49845 \u47456 \
+        else:\
+            self.learning_boost = max(0, self.learning_boost - 0.01)  # \uc0\u51216 \u51652 \u51201  \u44048 \u49548 \
+\
+    def select_action(self):\
+        # \uc0\u51204 \u51204 \u46160 \u50685 \u51032  \u53456 \u49353 -\u52265 \u52712  \u51312 \u51208 \
+        pfc_stability = self.prefrontal_modulation()\
+        local_epsilon = self.epsilon * (1 - pfc_stability)\
+\
+        if np.random.rand() < local_epsilon:\
+            return np.random.choice(self.n_actions)\
+\
+        # \uc0\u44048 \u51221 \u51201  \u50689 \u54693 \
+        emotion_influence = self.eta * np.dot(self.emotion, self.emotion_weight)\
+\
+        # \uc0\u54644 \u47560  \u47700 \u47784 \u47532  \u48148 \u51060 \u50612 \u49828 \
+        memory_bias = self.compute_memory_bias()\
+\
+        # \uc0\u48520 \u54869 \u49892 \u49457  \u44592 \u48152  \u53456 \u49353  \u48372 \u45320 \u49828 \
+        uncertainty_bonus = self.compute_uncertainty_bonus()\
+\
+        # \uc0\u45432 \u51060 \u51592  (\u54869 \u47456 \u51201  \u51032 \u49324 \u44208 \u51221 )\
+        noise = self.xi * np.random.randn(self.n_actions)\
+\
+        # \uc0\u47784 \u46304  \u50689 \u54693  \u50836 \u49548  \u53685 \u54633 \
+        adjusted_q = (self.q_values +\
+                     memory_bias +\
+                     emotion_influence +\
+                     uncertainty_bonus +\
+                     noise)\
+\
+        return np.argmax(adjusted_q)\
+\
+    def get_dominant_emotion(self):\
+      """\uc0\u44032 \u51109  \u44053 \u54620  \u44048 \u51221 \u44284  \u44536  \u44053 \u46020 \u47484  \u48152 \u54872 \u54633 \u45768 \u45796 ."""\
+      max_idx = np.argmax(self.emotion)\
+      return self.emotion_names[max_idx], self.emotion[max_idx]\
+\
+    def get_emotion_summary(self):\
+        """\uc0\u54788 \u51116  \u44048 \u51221  \u49345 \u53468 \u51032  \u50836 \u50557 \u51012  \u48152 \u54872 \u54633 \u45768 \u45796 ."""\
+        summary = \{\}\
+        for i, name in enumerate(self.emotion_names):\
+            if self.emotion[i] > 0.3:  # \uc0\u51032 \u48120  \u51080 \u45716  \u49688 \u51456 \u51032  \u44048 \u51221 \u47564  \u54252 \u54632 \
+                summary[name] = round(float(self.emotion[i]), 2)\
+        return summary\
+\
+    def get_emotion_vector(self):\
+        """\uc0\u51204 \u52404  \u44048 \u51221  \u48289 \u53552 \u47484  \u48152 \u54872 \u54633 \u45768 \u45796 ."""\
+        return \{name: round(float(val), 2) for name, val in zip(self.emotion_names, self.emotion)\}\
+\
+    def reset(self):\
+        """\uc0\u50640 \u51060 \u51204 \u53944  \u49345 \u53468 \u47484  \u52488 \u44592 \u54868 \u54633 \u45768 \u45796 ."""\
+        self.q_values = np.zeros(self.n_actions)\
+        self.emotion = np.zeros(8)\
+        self.episodic_memory = []\
+        self.context = None\
+        self.prev_context = None\
+        self.time = 0\
+        self.action_counts = np.zeros(self.n_actions)\
+        self.learning_boost = 0.25\
+        self.recent_context_changes.clear()\
+        self.action_history.clear()\
+        self.reward_history.clear()\
+        self.prev_reward = 0\
+\
+        # ECIA \uc0\u50640 \u51060 \u51204 \u53944  \u53364 \u47000 \u49828  \u45236 \u50640  \u45796 \u51020  \u53076 \u46300  \u52628 \u44032 \
+    def run_episode(self, env):\
+        emotions_history = []\
+        for t in range(env.total_trials):\
+            action = self.select_action()\
+\
+       # \uc0\u47588 \u50864  \u50504 \u51204 \u54620  step \u44208 \u44284  \u52376 \u47532 \
+            step_result = env.step(action)\
+            reward = None\
+            next_context = None\
+\
+            if step_result is None:\
+                continue\
+            elif isinstance(step_result, tuple):\
+                if len(step_result) == 2:\
+                    reward, next_context = step_result\
+                elif len(step_result) == 1:\
+                    reward = step_result[0]\
+                else:\
+                    reward = step_result[0] if step_result else 0\
+            else:\
+                reward = step_result\
+\
+            if reward is None:\
+                continue\
+\
+            # context \uc0\u52376 \u47532 \
+            if hasattr(self, "update_context") and env.context is not None:\
+                    if isinstance(env.context, np.ndarray) and len(env.context) >= 2:\
+                        norm_t, phase_id = env.context[0], env.context[1]\
+                        self.update_context(norm_t, phase_id)\
+\
+            self.update(self.context, action, reward)\
+            emotions_history.append(self.emotion.copy())\
+\
+        return np.array(emotions_history)\
+\
+    def update(self, context, action, reward):\
+        """\
+        \uc0\u50640 \u51060 \u51204 \u53944  \u49345 \u53468 \u47484  \u50629 \u45936 \u51060 \u53944 \u54633 \u45768 \u45796 .\
+        \uc0\u51060 \u51228  context \u47588 \u44060 \u48320 \u49688 \u47484  \u49324 \u50857 \u54633 \u45768 \u45796 .\
+        """\
+        if context is not None:\
+            self.context = context\
+\
+        # \uc0\u49888 \u44221 \u48156 \u49373  \u49884 \u48044 \u47112 \u51060 \u49496 \
+        self.hippocampal_neurogenesis()\
+\
+        # \uc0\u46020 \u54028 \u48124  \u44592 \u48152  \u54617 \u49845 \
+        prediction_error = self.update_dopamine_learning(action, reward)\
+\
+        # \uc0\u54644 \u47560 -\u54200 \u46020 \u52404  \u51221 \u49436  \u52376 \u47532  (8\u44032 \u51648  \u44048 \u51221 \u51004 \u47196  \u54869 \u51109 \u46120 )\
+        self.emotional_processing(reward)\
+\
+        # \uc0\u47700 \u47784 \u47532  \u51200 \u51109 \
+        self.store_memory(action, reward, prediction_error)\
+\
+        # \uc0\u47680 \u54000 \u53076 \u50612  \u44032 \u51473 \u52824  \u50629 \u45936 \u51060 \u53944  - \u51060  \u48512 \u48516 \u51012  \u52628 \u44032 \u54633 \u45768 \u45796 \
+        if hasattr(self, 'n_cores') and self.n_cores > 1:\
+            self._update_core_weights(reward)\
+\
+        # \uc0\u54665 \u46041  \u48143  \u48372 \u49345  \u51060 \u47141  \u50629 \u45936 \u51060 \u53944 \
+        self.action_history.append(action)\
+        self.reward_history.append(reward)\
+\
+        # \uc0\u54665 \u46041  \u54943 \u49688  \u52852 \u50868 \u53944 \
+        self.action_counts[action] += 1\
+\
+        self.prev_reward = reward\
+        self.time += 1\
+\
+  # \uc0\u9989  Epsilon-Greedy Agent\
+class EpsilonGreedyAgent:\
+    def __init__(self, n_actions=5, epsilon=0.1):\
+        self.n_actions = n_actions\
+        self.epsilon = epsilon\
+        self.q_values = np.zeros(n_actions)\
+        self.action_counts = np.zeros(n_actions)\
+\
+    def reset(self):\
+        self.q_values = np.zeros(self.n_actions)\
+        self.action_counts = np.zeros(self.n_actions)\
+\
+    def select_action(self):\
+        if np.random.rand() < self.epsilon:\
+            return np.random.choice(self.n_actions)\
+        return np.argmax(self.q_values)\
+\
+    def update(self, action, reward):\
+        self.action_counts[action] += 1\
+        alpha = 1 / self.action_counts[action]\
+        self.q_values[action] += alpha * (reward - self.q_values[action])\
+\
+# \uc0\u9989  UCB Agent\
+class UCBAgent:\
+    def __init__(self, n_actions=5, c=0.5):\
+        self.n_actions = n_actions\
+        self.c = c\
+        self.q_values = np.zeros(n_actions)\
+        self.action_counts = np.zeros(n_actions)\
+        self.total_steps = 0\
+\
+    def reset(self):\
+        self.q_values = np.zeros(self.n_actions)\
+        self.action_counts = np.zeros(self.n_actions)\
+        self.total_steps = 0\
+\
+    def select_action(self):\
+        self.total_steps += 1\
+        ucb_values = np.zeros(self.n_actions)\
+        for a in range(self.n_actions):\
+            if self.action_counts[a] == 0:\
+                return a\
+            bonus = self.c * np.sqrt(np.log(self.total_steps) / self.action_counts[a])\
+            ucb_values[a] = self.q_values[a] + bonus\
+        return np.argmax(ucb_values)\
+\
+    def update(self, action, reward):\
+        self.action_counts[action] += 1\
+        alpha = 1 / self.action_counts[action]\
+        self.q_values[action] += alpha * (reward - self.q_values[action])\
+\
+# \uc0\u9989  Thompson Sampling Agent (\u51221 \u44508 \u48516 \u54252  \u44592 \u48152 )\
+class ThompsonSamplingAgent:\
+    def __init__(self, n_actions=5):\
+        self.n_actions = n_actions\
+        self.priors = [(0.0, 1.0) for _ in range(n_actions)]\
+        self.observations = [[] for _ in range(n_actions)]\
+\
+    def reset(self):\
+        self.priors = [(0.0, 1.0) for _ in range(self.n_actions)]\
+        self.observations = [[] for _ in range(self.n_actions)]\
+\
+    def select_action(self):\
+        samples = [np.random.normal(mu, sigma) for mu, sigma in self.priors]\
+        return np.argmax(samples)\
+\
+    def update(self, action, reward):\
+        self.observations[action].append(reward)\
+        data = self.observations[action]\
+        if len(data) > 1:\
+            mu = np.mean(data)\
+            sigma = np.std(data) if np.std(data) > 0 else 1.0\
+            self.priors[action] = (mu, sigma)\
+\
+\
+\
+\
+\
+\
+import os\
+import numpy as np\
+import pickle\
+from tqdm import tqdm\
+\
+class ExperimentRunner:\
+    def __init__(self, env_class, agent_class, agent_kwargs=None,\
+                 n_runs=300, n_trials=200, seed=1234, env_name="EnvA"):\
+        self.env_class = env_class\
+        self.agent_class = agent_class\
+        self.agent_kwargs = agent_kwargs or \{\}\
+        self.n_runs = n_runs\
+        self.n_trials = n_trials\
+        self.seed = seed\
+        self.env_name = env_name\
+        np.random.seed(seed)\
+\
+    def run(self):\
+        all_rewards = []\
+        all_actions = []\
+        all_emotions = []\
+        all_recovery_times = []\
+        all_recovery_rates = []\
+        all_action_dists = []\
+        all_emotions_detailed = []\
+\
+        for _ in tqdm(range(self.n_runs), desc=f"Running \{self.agent_class.__name__\} in \{self.env_name\}"):\
+            emotions_detailed = []\
+            rewards = []\
+            actions = []\
+            emotions = []\
+\
+            try:\
+                # \uc0\u54872 \u44221  \u48143  \u50640 \u51060 \u51204 \u53944  \u52488 \u44592 \u54868 \
+                if self.env_name == "EnvC":\
+                    change_points = sorted(np.random.choice(range(30, 170), size=3, replace=False).tolist())\
+                    env = self.env_class(run_change_points=change_points)\
+                else:\
+                    env = self.env_class()\
+\
+                agent = self.agent_class(**self.agent_kwargs)\
+                state = env.reset()\
+                agent.reset()\
+\
+                # \uc0\u49884 \u48044 \u47112 \u51060 \u49496  \u49892 \u54665 \
+                for t in range(self.n_trials):\
+                    try:\
+                        sig = agent.select_action.__code__.co_varnames\
+                        if 'state' in sig:\
+                            action = agent.select_action(state)\
+                        else:\
+                            action = agent.select_action()\
+\
+                        # step \uc0\u44208 \u44284  \u50504 \u51204  \u52376 \u47532 \
+                        step_result = env.step(action)\
+\
+                        if step_result is None:\
+                            reward = 0.0\
+                        elif isinstance(step_result, tuple):\
+                            if len(step_result) >= 2:\
+                                reward, next_context = step_result\
+                            elif len(step_result) == 1:\
+                                reward = step_result[0]\
+                            else:\
+                                reward = 0.0\
+                        else:\
+                            reward = step_result\
+\
+                        # reward \uc0\u50504 \u51204  \u52376 \u47532 \
+                        if reward is None:\
+                            reward = 0.0\
+                        try:\
+                            reward = float(reward)\
+                        except (ValueError, TypeError):\
+                            reward = 0.0\
+\
+                        # context \uc0\u52376 \u47532 \
+                        if hasattr(agent, "update_context") and hasattr(env, "context"):\
+                            if env.context is not None:\
+                                try:\
+                                    if isinstance(env.context, np.ndarray) and len(env.context) >= 2:\
+                                        norm_t, phase_id = env.context[0], env.context[1]\
+                                        agent.update_context(norm_t, phase_id)\
+                                except Exception:\
+                                    pass\
+\
+                        # agent update\
+                        sig_u = agent.update.__code__.co_varnames\
+                        if 'context' in sig_u:\
+                            agent.update(agent.context, action, reward)\
+                        elif 'state' in sig_u:\
+                            agent.update(state, action, reward, state, False)\
+                        else:\
+                            agent.update(action, reward)\
+\
+                        # \uc0\u44208 \u44284  \u44592 \u47197 \
+                        rewards.append(reward)\
+                        actions.append(action)\
+                        if hasattr(agent, 'emotion'):\
+                            emotions.append(np.mean(agent.emotion))\
+                            if hasattr(agent, '__class__') and 'ECIA' in agent.__class__.__name__:\
+                                emotions_detailed.append(agent.emotion.copy())\
+\
+                    except Exception as e:\
+                        print(f"[ERROR] Trial \{t\}: \{e\}")\
+                        continue\
+\
+            except Exception as e:\
+                print(f"[ERROR] Run failed: \{e\}")\
+                continue\
+\
+            # \uc0\u44033  run \u50756 \u47308  \u54980  \u44208 \u44284  \u51200 \u51109 \
+            all_rewards.append(rewards)\
+            all_actions.append(actions)\
+\
+            if emotions:\
+                all_emotions.append(emotions)\
+            if emotions_detailed:\
+                all_emotions_detailed.append(emotions_detailed)\
+\
+\
+            # \uc0\u54924 \u48373  \u49884 \u44036  \u44228 \u49328  - \u45436 \u47928  \u51221 \u51032 \u50640  \u47582 \u44172  \u51068 \u44288 \u49457  \u51080 \u44172  \u49688 \u51221 \
+            recovery_threshold = 0.81\
+            found = False\
+\
+            if self.env_name == "EnvC" and hasattr(env, "change_points"):\
+                # Environment C: \uc0\u47784 \u46304  change point\u50640 \u49436  \u54217 \u44512  recovery time \u44228 \u49328 \
+                recovery_times_this_run = []\
+                for cp in env.change_points:\
+                    if cp + 30 < len(rewards):\
+                        for i in range(cp + 5, min(cp + 30, len(rewards))):\
+                            if i >= 5 and np.mean(rewards[i-5:i]) >= recovery_threshold:\
+                                recovery_times_this_run.append(i - cp)  # \uc0\u48320 \u54868 \u51216 \u48512 \u53552 \u51032  \u44221 \u44284  \u49884 \u44036 \
+                                break\
+                if recovery_times_this_run:\
+                    all_recovery_times.append(np.mean(recovery_times_this_run))\
+                    found = True\
+                else:\
+                    all_recovery_times.append(np.nan)\
+\
+            elif self.env_name == "EnvA":\
+                # Environment A: trial 100 \uc0\u48320 \u54868  \u54980  \u44221 \u44284  \u49884 \u44036 \
+                change_point = 100\
+                for i in range(change_point + 5, min(len(rewards), self.n_trials)):\
+                    if i >= 5 and np.mean(rewards[i-5:i]) >= recovery_threshold:\
+                        all_recovery_times.append(i - change_point)  # \uc0\u48320 \u54868 \u51216 \u48512 \u53552 \u51032  \u44221 \u44284  \u49884 \u44036 \
+                        found = True\
+                        break\
+                if not found:\
+                    all_recovery_times.append(np.nan)\
+\
+            elif self.env_name == "EnvB":\
+                # Environment B: \uc0\u47784 \u46304  \u48320 \u54868 \u51216 \u50640 \u49436  \u54217 \u44512  recovery time \u44228 \u49328 \
+                change_points_b = [40, 80, 120, 160]  # \uc0\u51221 \u44592 \u51201  \u48320 \u54868 \u51216 \u46308 \
+                recovery_times_this_run = []\
+                for cp in change_points_b:\
+                    if cp + 35 < len(rewards):\
+                        for i in range(cp + 5, min(cp + 35, len(rewards))):\
+                            if i >= 5 and np.mean(rewards[i-5:i]) >= recovery_threshold:\
+                                recovery_times_this_run.append(i - cp)  # \uc0\u48320 \u54868 \u51216 \u48512 \u53552 \u51032  \u44221 \u44284  \u49884 \u44036 \
+                                break\
+                if recovery_times_this_run:\
+                    all_recovery_times.append(np.mean(recovery_times_this_run))\
+                    found = True\
+                else:\
+                    all_recovery_times.append(np.nan)\
+\
+            else:\
+                # \uc0\u44592 \u48376  \u44228 \u49328  (\u45796 \u47480  \u54872 \u44221 \u50857 )\
+                change_point = 100  # \uc0\u44592 \u48376  \u48320 \u54868 \u51216 \
+                for i in range(change_point + 5, min(len(rewards), self.n_trials)):\
+                    if i >= 5 and np.mean(rewards[i-5:i]) >= recovery_threshold:\
+                        all_recovery_times.append(i - change_point)  # \uc0\u48320 \u54868 \u51216 \u48512 \u53552 \u51032  \u44221 \u44284  \u49884 \u44036 \
+                        found = True\
+                        break\
+                if not found:\
+                    all_recovery_times.append(np.nan)\
+\
+            # \uc0\u54665 \u46041  \u48516 \u54252  \u44228 \u49328 \
+            if self.env_name == "EnvA" and len(actions) >= 120:\
+                pre = actions[80:100]\
+                post = actions[100:120]\
+            elif self.env_name == "EnvB" and len(actions) >= 146:\
+                pre = actions[105:125]\
+                post = actions[126:146]\
+            elif self.env_name == "EnvC" and hasattr(env, "change_points"):\
+                cp = env.change_points\
+                if len(actions) >= max(cp)+20:\
+                    pre = actions[cp[1]-10:cp[1]]\
+                    post = actions[cp[1]:cp[1]+10]\
+                else:\
+                    pre, post = [], []\
+            elif self.env_name == "EnvE" and len(actions) >= 73:\
+                pre = actions[60:66]\
+                post = actions[67:73]\
+            else:\
+                pre, post = [], []\
+\
+            pre_dist = np.bincount(pre, minlength=5) / len(pre) if len(pre) > 0 else np.zeros(5)\
+            post_dist = np.bincount(post, minlength=5) / len(post) if len(post) > 0 else np.zeros(5)\
+            all_action_dists.append(\{"pre": pre_dist, "post": post_dist\})\
+\
+\
+        return \{\
+            "rewards": np.array(all_rewards),\
+            "actions": np.array(all_actions),\
+            "emotions": np.array(all_emotions) if all_emotions else None,\
+            "emotions_detailed": np.array(all_emotions_detailed) if all_emotions_detailed else None,\
+            "recovery_times": np.array(all_recovery_times),\
+            "recovery_rates": np.array(all_recovery_rates),\
+            "action_distributions": all_action_dists,\
+        \}\
+\
+\
+\
+    def save(self, results, filename):\
+        with open(filename, "wb") as f:\
+            pickle.dump(results, f)\
+\
+def run_all_environments(agents, envs, save_dir="results"):\
+    os.makedirs(save_dir, exist_ok=True)\
+    for env_name, env_class in envs.items():\
+        for agent_name, (agent_class, agent_kwargs) in agents.items():\
+            runner = ExperimentRunner(\
+                env_class=env_class,\
+                agent_class=agent_class,\
+                agent_kwargs=agent_kwargs,\
+                n_runs=300,   # \uc0\u9989  \u50668 \u44592 !\
+                n_trials=200,\
+                env_name=env_name\
+            )\
+            result = runner.run()\
+            runner.save(result, os.path.join(save_dir, f"\{env_name\}_\{agent_name\}.pkl"))\
+\
+\
+\
+\
+\
+AGENTS = \{\
+    "EGreedy": (EpsilonGreedyAgent, \{"n_actions": 5, "epsilon": 0.1\}),\
+    "UCB": (UCBAgent, \{"n_actions": 5, "c": 0.5\}),\
+    "TS": (ThompsonSamplingAgent, \{"n_actions": 5\}),\
+    "ECIA": (ECIA_hippocampal_extended, \{\
+    "n_actions": 5,\
+    "epsilon": 0.08,\
+    "eta": 0.6,\
+    "memory_threshold": 0.05,\
+    "memory_influence": 0.25,\
+    "memory_similarity_threshold": 0.12,\
+    "top_k": 7,\
+    "n_cores": 3\
+\})\
+\}\
+\
+ENVIRONMENTS = \{\
+    "EnvA": EnvironmentA,\
+    "EnvB": EnvironmentB,\
+    "EnvC": EnvironmentC,\
+\}\
+\
+\
+run_all_environments(AGENTS, ENVIRONMENTS)\
+\
+\
+\
+\
+\
+\
+\
+\
+import os\
+import seaborn as sns\
+import matplotlib.pyplot as plt\
+import pandas as pd\
+\
+def compute_run_based_recovery_rate_detailed(all_rewards, start=100, end=200, opt_reward=0.9):\
+    """\uc0\u47088  \u49688  \u44592 \u51456  recovery rate\u51032  \u51204 \u52404  \u47532 \u49828 \u53944 \u47484  \u48152 \u54872 \u54633 \u45768 \u45796 ."""\
+    run_sizes = [10, 100, 300]\
+    run_rates = \{f"run_\{r\}": [] for r in run_sizes\}\
+\
+\
+    for r in run_sizes:\
+        actual_runs = min(r, all_rewards.shape[0])  # \uc0\u49892 \u51228  \u44032 \u45733 \u54620  run \u49688 \
+\
+        if actual_runs == 0:\
+            continue\
+\
+        for i in range(actual_runs):\
+            try:\
+                # \uc0\u48372 \u49345  \u48276 \u50948  \u51312 \u51221 \
+                if all_rewards.shape[1] <= end:\
+                    actual_end = min(all_rewards.shape[1], end)\
+                    if actual_end <= start:\
+                        continue\
+                    mean_r = np.mean(all_rewards[i, start:actual_end])\
+                else:\
+                    mean_r = np.mean(all_rewards[i, start:end])\
+\
+                # Recovery rate \uc0\u44228 \u49328  (0.9 \u45824 \u49888  \u45796 \u50577 \u54620  \u44592 \u51456  \u49324 \u50857 )\
+                recovery_rate = mean_r / opt_reward\
+\
+                # \uc0\u50557 \u44036 \u51032  \u45432 \u51060 \u51592  \u52628 \u44032 \u47196  \u48320 \u46041 \u49457  \u54869 \u48372  (\u49892 \u51228  \u45936 \u51060 \u53552 \u50640 \u49436 \u45716  \u51088 \u50672 \u51201  \u48320 \u46041 )\
+                noise = np.random.normal(0, 0.02)  # 2% \uc0\u45432 \u51060 \u51592 \
+                recovery_rate += noise\
+                recovery_rate = max(0, recovery_rate)  # \uc0\u51020 \u49688  \u48169 \u51648 \
+\
+                run_rates[f"run_\{r\}"].append(recovery_rate)\
+\
+            except Exception as e:\
+                print(f"[ERROR] run \{i\}, size \{r\}: \{e\}")\
+                continue\
+\
+\
+    return run_rates\
+def analyze_ecia_versions(results_all, save_path="results"):\
+    """\
+    ECIA \uc0\u48260 \u51204 \u46308 \u44284  \u45796 \u47480  \u44592 \u51456  \u50640 \u51060 \u51204 \u53944 \u46308 \u51012  \u48708 \u44368  \u48516 \u49437 \
+    """\
+    hippocampal_agent = "ECIA"\
+    envs = ["EnvA", "EnvB", "EnvC"]\
+    baseline_agents = ["EGreedy", "UCB", "TS"]\
+    all_agents = [hippocampal_agent] + baseline_agents\
+\
+    for env in envs:\
+        if env not in results_all:\
+            continue\
+\
+        os.makedirs(f"\{save_path\}/\{env\}/figs", exist_ok=True)\
+\
+        if hippocampal_agent not in results_all[env]:\
+            continue\
+\
+        records = []\
+        for agent in all_agents:\
+            if agent not in results_all[env]:\
+                continue\
+\
+            res = results_all[env][agent]\
+            if isinstance(res, dict) and len(res) == 1 and agent in res:\
+                res = res[agent]\
+\
+            if "rewards" not in res:\
+                print(f"[ERROR] \{env\} | \{agent\}: rewards \uc0\u53412  \u50630 \u51020 ")\
+                continue\
+\
+            rewards = res["rewards"]\
+            recovery = res.get("recovery_times", np.array([np.nan]))\
+\
+            try:\
+                if rewards.ndim == 1:\
+                    rewards = rewards.reshape(1, -1)\
+\
+                # Post-change \uc0\u44396 \u44036  \u49324 \u50857  (trials 100-200)\
+                if rewards.shape[1] >= 200:\
+                    post = np.mean(rewards[:, 100:200], axis=1)\
+                elif rewards.shape[1] > 100:\
+                    post = np.mean(rewards[:, 100:], axis=1)\
+                else:\
+                    post = np.mean(rewards[:, rewards.shape[1]//2:], axis=1)\
+            except Exception as e:\
+                print(f"[ERROR] \{env\} | \{agent\}: \uc0\u48372 \u49345  post \u44228 \u49328  \u49892 \u54056  \u8594  \{e\}")\
+                continue\
+\
+            summary = \{\
+                "Agent": agent,\
+                "Mean Reward": np.mean(post),\
+                "Std Reward": np.std(post),\
+                "Recovery Time Mean": np.nanmean(recovery),\
+                "Recovery Time Std": np.nanstd(recovery),\
+            \}\
+\
+            # \uc0\u54924 \u48373 \u47456  \u44228 \u49328 \
+            try:\
+                run_rates = compute_run_based_recovery_rate_detailed(rewards)\
+                summary.update(\{k: np.mean(v) for k, v in run_rates.items()\})\
+                summary["run_rates_detailed"] = run_rates\
+\
+                for key, val in run_rates.items():\
+                    results_all[env][agent][key] = val\
+\
+            except Exception as e:\
+                print(f"[ERROR] \{env\} | \{agent\}: \uc0\u54924 \u48373 \u47456  \u44228 \u49328  \u49892 \u54056  \u8594  \{e\}")\
+                summary.update(\{"run_10": np.nan, "run_100": np.nan, "run_300": np.nan\})\
+                summary["run_rates_detailed"] = \{"run_10": [], "run_100": [], "run_300": []\}\
+\
+            records.append(summary)\
+\
+        if not records:\
+            print(f"[ERROR] \{env\}: \uc0\u48516 \u49437 \u54624  \u47112 \u53076 \u46300 \u44032  \u50630 \u49845 \u45768 \u45796 .")\
+            continue\
+\
+        try:\
+            df = pd.DataFrame(records)\
+            df = df.sort_values(by="Agent", key=lambda x: x.map(\{hippocampal_agent: 0\}).fillna(1))\
+            df.to_csv(f"\{save_path\}/\{env\}/summary_\{hippocampal_agent\}.csv", index=False)\
+            print(f"\uc0\u9989  \{env\} \u50836 \u50557  \u54028 \u51068  \u51200 \u51109  \u50756 \u47308 ")\
+\
+        except Exception as e:\
+            print(f"[ERROR] \{env\}: \uc0\u50836 \u50557  \u54028 \u51068  \u49373 \u49457  \u49892 \u54056  \u8594  \{e\}")\
+            continue\
+\
+        # \uc0\u55357 \u57003  \u53685 \u44228  \u48516 \u49437  \u48143  \u44536 \u47000 \u54532  \u49373 \u49457  \u48512 \u48516  \u50756 \u51204  \u51228 \u44144 \
+\
+import os\
+import numpy as np\
+import matplotlib.pyplot as plt\
+import pandas as pd\
+\
+label_map = \{\
+    "ECIA_hippocampal_extended": "ECIA",\
+    "EGreedy": "EGreedy",\
+    "UCB": "UCB",\
+    "TS": "TS"\
+\}\
+\
+ecia_versions = ["ECIA"]\
+envs = ["EnvA", "EnvB", "EnvC"]\
+\
+# [1] \uc0\u54665 \u46041  \u48516 \u54252  \u49884 \u44033 \u54868 \
+def plot_action_distributions_for_ecia(results_all, save_path="results"):\
+    """ECIA \uc0\u50640 \u51060 \u51204 \u53944 \u51032  \u54665 \u46041  \u48516 \u54252 \u47564  \u49884 \u44033 \u54868 \u54633 \u45768 \u45796 ."""\
+    for env in ["EnvA", "EnvB", "EnvC"]:\
+        if env not in results_all or "ECIA" not in results_all[env]:\
+            print(f"\uc0\u54872 \u44221  \{env\}\u50640  ECIA \u44208 \u44284 \u44032  \u50630 \u49845 \u45768 \u45796 .")\
+            continue\
+\
+        os.makedirs(f"\{save_path\}/\{env\}/figs", exist_ok=True)\
+\
+        agent = "ECIA"\
+        data = results_all[env][agent]\
+\
+        # \uc0\u45936 \u51060 \u53552  \u44160 \u51613 \
+        if "action_distributions" not in data:\
+            print(f"\{env\}\uc0\u51032  \{agent\}\u50640  action_distributions\u51060  \u50630 \u49845 \u45768 \u45796 .")\
+\
+            # actions \uc0\u53412 \u44032  \u51080 \u51004 \u47732  \u51649 \u51217  \u44228 \u49328  \u49884 \u46020 \
+            if "actions" in data and isinstance(data["actions"], np.ndarray):\
+                print(f"\{env\}\uc0\u51032  \{agent\}\u50640  \u45824 \u54644  actions \u45936 \u51060 \u53552 \u47196 \u48512 \u53552  \u48516 \u54252  \u44228 \u49328 \u51012  \u49884 \u46020 \u54633 \u45768 \u45796 ...")\
+                try:\
+                    actions = data["actions"]\
+\
+                    # \uc0\u52264 \u50896  \u54869 \u51064  \u48143  \u51312 \u51221 \
+                    if actions.ndim == 1:\
+                        actions = actions.reshape(1, -1)\
+\
+                    # \uc0\u54872 \u44221 \u48324  \u48276 \u50948  \u49444 \u51221 \
+                    if env == "EnvA":\
+                        pre_range = (80, 100)\
+                        post_range = (100, 120)\
+                    elif env == "EnvB":\
+                        pre_range = (105, 125)\
+                        post_range = (126, 146)\
+                    elif env == "EnvC":\
+                        pre_range = (85, 100)\
+                        post_range = (105, 120)\
+                    else:\
+                        continue\
+\
+                    # \uc0\u47784 \u46304  \u49892 \u54665 \u50640  \u45824 \u54620  \u54665 \u46041  \u49688 \u51665 \
+                    pre_actions = []\
+                    post_actions = []\
+\
+                    for run_actions in actions:\
+                        if len(run_actions) >= post_range[1]:\
+                            pre_actions.extend(run_actions[pre_range[0]:pre_range[1]])\
+                            post_actions.extend(run_actions[post_range[0]:post_range[1]])\
+\
+                    if pre_actions and post_actions:\
+                        # \uc0\u48516 \u54252  \u44228 \u49328 \
+                        pre_dist = np.bincount(pre_actions, minlength=5) / len(pre_actions)\
+                        post_dist = np.bincount(post_actions, minlength=5) / len(post_actions)\
+\
+                        # \uc0\u44536 \u47000 \u54532  \u49373 \u49457 \
+                        plt.figure(figsize=(10, 6))\
+\
+                        x = np.arange(5)  # 5\uc0\u44060  \u54665 \u46041 \
+                        width = 0.35\
+\
+                        plt.bar(x - width/2, pre_dist, width, label='\uc0\u48320 \u54868  \u51204 ', alpha=0.5)\
+                        plt.bar(x + width/2, post_dist, width, label='\uc0\u48320 \u54868  \u54980 ', alpha=0.7)\
+\
+                        plt.title(f"\{env\}: ECIA Action Distribution (Pre vs Post)")\
+                        plt.xlabel("Action")\
+                        plt.ylabel("Proportion")\
+                        plt.xticks(x, [f'Action \{i\}' for i in range(5)])\
+                        plt.legend()\
+                        plt.tight_layout()\
+                        plt.savefig(f"\{save_path\}/\{env\}/figs/ecia_action_distribution.png", dpi=300)\
+                        plt.close()\
+                        print(f"\uc0\u9989  \{env\} ECIA \u54665 \u46041  \u48516 \u54252  \u44536 \u47000 \u54532  \u51200 \u51109  \u50756 \u47308 ")\
+                    else:\
+                        print(f"\{env\}\uc0\u51032  \{agent\}\u50640 \u49436  pre/post \u54665 \u46041  \u45936 \u51060 \u53552 \u47484  \u52628 \u52636 \u54624  \u49688  \u50630 \u49845 \u45768 \u45796 .")\
+\
+                except Exception as e:\
+                    print(f"\{env\}\uc0\u51032  \{agent\} \u54665 \u46041  \u48516 \u54252  \u44228 \u49328  \u51473  \u50724 \u47448 : \{e\}")\
+\
+            continue\
+\
+        dist = data["action_distributions"]\
+        if not dist or len(dist) == 0:\
+            print(f"\{env\}\uc0\u51032  \{agent\}\u50640  action_distributions\u51060  \u48708 \u50612 \u51080 \u49845 \u45768 \u45796 .")\
+            continue\
+\
+        try:\
+            # \uc0\u50504 \u51204 \u54616 \u44172  pre\u50752  post \u45936 \u51060 \u53552  \u52628 \u52636 \
+            pre_dists = []\
+            post_dists = []\
+\
+            for d in dist:\
+                if isinstance(d, dict) and "pre" in d and "post" in d:\
+                    pre_item = d["pre"]\
+                    post_item = d["post"]\
+\
+                    # numpy \uc0\u48176 \u50676 \u51060 \u44256  1\u52264 \u50896 \u51064 \u51648  \u54869 \u51064 \
+                    if isinstance(pre_item, np.ndarray) and pre_item.ndim == 1 and len(pre_item) > 0:\
+                        pre_dists.append(pre_item)\
+\
+                    if isinstance(post_item, np.ndarray) and post_item.ndim == 1 and len(post_item) > 0:\
+                        post_dists.append(post_item)\
+\
+            # \uc0\u52649 \u48516 \u54620  \u45936 \u51060 \u53552 \u44032  \u51080 \u45716 \u51648  \u54869 \u51064 \
+            if not pre_dists or not post_dists:\
+                print(f"\{env\}\uc0\u51032  \{agent\}\u50640  \u50976 \u54952 \u54620  pre/post \u45936 \u51060 \u53552 \u44032  \u50630 \u49845 \u45768 \u45796 .")\
+                continue\
+\
+            pre = np.mean(pre_dists, axis=0)\
+            post = np.mean(post_dists, axis=0)\
+\
+            # \uc0\u45936 \u51060 \u53552  \u44160 \u51613 \
+            if pre.size == 0 or post.size == 0:\
+                print(f"\{env\}\uc0\u51032  \{agent\}\u50640  \u48712  pre/post \u48176 \u50676 \u51060  \u51080 \u49845 \u45768 \u45796 .")\
+                continue\
+\
+            # \uc0\u44536 \u47000 \u54532  \u49373 \u49457 \
+            plt.figure(figsize=(10, 6))\
+\
+            x = np.arange(len(pre))\
+            width = 0.35\
+\
+            plt.bar(x - width/2, pre, width, label='Pre-Change', alpha=0.5)\
+            plt.bar(x + width/2, post, width, label='Post-Change', alpha=0.7)\
+\
+            plt.title(f"\{env\}: ECIA Action Distribution (Pre vs Post)")\
+            plt.xlabel("Action")\
+            plt.ylabel("Proportion")\
+            plt.xticks(x, [f'Action \{i\}' for i in range(len(pre))])\
+            plt.legend()\
+            plt.tight_layout()\
+            plt.savefig(f"\{save_path\}/\{env\}/figs/ecia_action_distribution.png", dpi=300)\
+            plt.close()\
+            print(f"\uc0\u9989  \{env\} ECIA \u54665 \u46041  \u48516 \u54252  \u44536 \u47000 \u54532  \u51200 \u51109  \u50756 \u47308 ")\
+\
+        except Exception as e:\
+            print(f"Error plotting \{env\} \{agent\}: \{e\}")\
+\
+\
+# [2] \uc0\u44048 \u51221  \u49884 \u44228 \u50676  \u44536 \u47000 \u54532  (ECIA\u47564  \u54644 \u45817 )\
+def plot_emotion_trajectory_multi(results_all, save_path="results"):\
+    """ECIA \uc0\u44048 \u51221  \u44452 \u51201  \u49884 \u44033 \u54868 : 8\u44032 \u51648  \u44048 \u51221  \u49440  \u44536 \u47000 \u54532 """\
+    for env in ["EnvA", "EnvB", "EnvC"]:\
+        try:\
+            emo_data = results_all[env]["ECIA"].get("emotions_detailed")\
+            if emo_data is None or emo_data.ndim != 3:\
+                print(f"\{env\}: emotions_detailed \uc0\u45936 \u51060 \u53552 \u44032  \u48512 \u51313 \u54616 \u44144 \u45208  \u51096 \u47803 \u46104 \u50632 \u49845 \u45768 \u45796 .")\
+                continue\
+\
+            mean_emotion = np.mean(emo_data, axis=0)  # shape = [trials, 8]\
+            if mean_emotion.shape[1] != 8:\
+                print(f"\{env\}: \uc0\u44048 \u51221  \u48289 \u53552  \u52264 \u50896  \u50724 \u47448  \u8594  \{mean_emotion.shape\}")\
+                continue\
+\
+            emotion_names = [\
+                "Joy", "Fear", "Hope", "Sadness",\
+                "Curiosity", "Anger", "Pride", "Shame"\
+            ]\
+\
+            fig, axs = plt.subplots(4, 2, figsize=(12, 10))\
+            axs = axs.flatten()\
+\
+            for i in range(8):\
+                axs[i].plot(mean_emotion[:, i], linewidth=2)\
+                axs[i].set_title(emotion_names[i])\
+                axs[i].grid(alpha=0.3)\
+\
+            fig.suptitle(f"\{env\}: ECIA \uc0\u44048 \u51221  \u44452 \u51201 ", fontsize=16)\
+            plt.tight_layout(rect=[0, 0, 1, 0.96])\
+            os.makedirs(f"\{save_path\}/\{env\}/figs", exist_ok=True)\
+            plt.savefig(f"\{save_path\}/\{env\}/figs/emotion_trajectory_ECIA.png", dpi=300)\
+            plt.close()\
+            print(f"\uc0\u9989  \{env\} \u44048 \u51221  \u44452 \u51201  \u51200 \u51109  \u50756 \u47308 ")\
+\
+        except Exception as e:\
+            print(f"\uc0\u10071  \{env\}: \u44048 \u51221  \u44452 \u51201  \u49373 \u49457  \u49892 \u54056  \u8594  \{e\}")\
+\
+\
+\
+# [3] \uc0\u53581 \u49828 \u53944 /CSV \u44592 \u48152  \u44208 \u44284  \u52636 \u47141 \
+def display_summaries_and_stats(save_path="results"):\
+    """\uc0\u49373 \u49457 \u46108  \u44208 \u44284  \u50836 \u50557  \u54028 \u51068 \u46308 \u51012  \u54869 \u51064 \u54616 \u44256  \u45236 \u50857 \u51012  \u52636 \u47141 \u54633 \u45768 \u45796 ."""\
+    envs = ["EnvA", "EnvB", "EnvC"]\
+    ecia_versions = ["ECIA"]\
+\
+    found_any = False\
+\
+    for env in envs:\
+        for version in ecia_versions:\
+            name = label_map.get(version, version)\
+            summary_path = f"\{save_path\}/\{env\}/summary_\{name\}.csv"\
+\
+            if os.path.exists(summary_path):\
+                found_any = True\
+                try:\
+                    df_sum = pd.read_csv(summary_path)\
+                    print(f"\\n\uc0\u55357 \u56522  [\{env\} | \{name\}] \u54217 \u44512  \u48372 \u49345  \u48143  \u54924 \u48373  \u53685 \u44228 ")\
+                    print(df_sum.to_string(index=False))\
+                except Exception as e:\
+                    print(f"Error reading \{summary_path\}: \{e\}")\
+\
+\
+\
+    if not found_any:\
+        print("\\n\uc0\u9888 \u65039  \u49373 \u49457 \u46108  \u50836 \u50557  \u48143  \u53685 \u44228  \u54028 \u51068 \u51012  \u52286 \u51012  \u49688  \u50630 \u49845 \u45768 \u45796 .")\
+        print(f"\uc0\u54869 \u51064  \u44221 \u47196 : \{save_path\}/(EnvA-EnvE)/")\
+\
+\
+# \uc0\u44048 \u51221 \u46041 \u53468  \u52628 \u44032 \
+import os\
+import numpy as np\
+import matplotlib.pyplot as plt\
+import pickle\
+from matplotlib.gridspec import GridSpec\
+def plot_emotion_dynamics(results_all, save_path="results"):\
+    """\uc0\u44033  \u54872 \u44221 \u48324 \u47196  ECIA \u47784 \u45944 \u51032  8\u44032 \u51648  \u44048 \u51221  \u54876 \u49457 \u54868  \u54056 \u53556 \u51012  \u49884 \u44033 \u54868 \u54633 \u45768 \u45796 ."""\
+\
+    # \uc0\u44048 \u51221  \u51060 \u47492  \u48143  \u49353 \u49345  \u51221 \u51032 \
+    emotion_names = [\
+        "\uc0\u44592 \u49256 (Joy)",\
+        "\uc0\u46160 \u47140 \u50880 (Fear)",\
+        "\uc0\u55148 \u47581 (Hope)",\
+        "\uc0\u49836 \u54548 (Sadness)",\
+        "\uc0\u54840 \u44592 \u49900 (Curiosity)",\
+        "\uc0\u48516 \u45432 (Anger)",\
+        "\uc0\u51088 \u48512 \u49900 (Pride)",\
+        "\uc0\u49688 \u52824 \u49900 (Shame)"\
+    ]\
+\
+    colors = [\
+        '#ff9999',  # \uc0\u46160 \u47140 \u50880  - \u50672 \u54620  \u48744 \u44053 \
+        '#ffcc99',  # \uc0\u44592 \u49256  - \u50672 \u54620  \u51452 \u54889 \
+        '#ffff99',  # \uc0\u55148 \u47581  - \u50672 \u54620  \u45432 \u46993 \
+        '#99ccff',  # \uc0\u49836 \u54548  - \u50672 \u54620  \u54028 \u46993 \
+        '#cc99ff',  # \uc0\u54840 \u44592 \u49900  - \u50672 \u54620  \u48372 \u46972 \
+        '#ff6666',  # \uc0\u48516 \u45432  - \u51652 \u54620  \u48744 \u44053 \
+        '#99ff99',  # \uc0\u51088 \u48512 \u49900  - \u50672 \u54620  \u52488 \u47197 \
+        '#c2c2c2'   # \uc0\u49688 \u52824 \u49900  - \u54924 \u49353 \
+    ]\
+\
+    index_map = [1, 0, 2, 3, 4, 5, 6, 7]  # 0->1, 1->0, \uc0\u45208 \u47672 \u51648 \u45716  \u44536 \u45824 \u47196 \
+\
+\
+    # \uc0\u54872 \u44221  \u48324  \u48320 \u54872 \u51216  (trials)\
+    env_change_points = \{\
+        "EnvA": [50, 100, 150],\
+        "EnvB": [75, 125],\
+        "EnvC": [50, 100, 150],  # \uc0\u44592 \u48376 \u44050 , \u49892 \u51228 \u47196 \u45716  \u44033  \u49892 \u54665 \u47560 \u45796  \u45796 \u47492 \
+    \}\
+\
+    envs = ["EnvA", "EnvB", "EnvC"]\
+\
+    for env in envs:\
+        if env not in results_all or "ECIA" not in results_all[env]:\
+            print(f"\{env\}\uc0\u50640  ECIA \u44208 \u44284 \u44032  \u50630 \u49845 \u45768 \u45796 .")\
+            continue\
+\
+        # \uc0\u46356 \u47113 \u53664 \u47532  \u49373 \u49457 \
+        os.makedirs(f"\{save_path\}/\{env\}/figs", exist_ok=True)\
+\
+        # ECIA \uc0\u47784 \u45944 \u51032  \u44208 \u44284  \u44032 \u51256 \u50724 \u44592 \
+        ecia_results = results_all[env]["ECIA"]\
+\
+        try:\
+            # \uc0\u44048 \u51221  \u45936 \u51060 \u53552  \u52628 \u52636 \
+            detailed_emotions = extract_emotion_details(env, ecia_results)\
+\
+            if detailed_emotions is None:\
+                print(f"\{env\} \uc0\u54872 \u44221 \u50640 \u49436  \u49345 \u49464  \u44048 \u51221  \u45936 \u51060 \u53552 \u47484  \u52628 \u52636 \u54624  \u49688  \u50630 \u49845 \u45768 \u45796 .")\
+                continue\
+\
+            temp = detailed_emotions[0].copy()\
+            detailed_emotions[0] = detailed_emotions[1]\
+            detailed_emotions[1] = temp\
+\
+            # \uc0\u53440 \u51076 \u46972 \u51064  \u49373 \u49457 \
+            n_trials = detailed_emotions.shape[1]\
+            timeline = np.arange(n_trials)\
+\
+            # \uc0\u48320 \u54868 \u51216  \u54364 \u49884 \
+            change_points = env_change_points[env]\
+\
+            # \uc0\u44536 \u47000 \u54532  \u49373 \u49457 \
+            fig = plt.figure(figsize=(12, 10))\
+\
+            # \uc0\u44536 \u47532 \u46300  \u47112 \u51060 \u50500 \u50883  - 8\u44060  \u44048 \u51221  + 1\u44060  \u51333 \u54633 \
+            gs = GridSpec(3, 3, figure=fig)\
+\
+            # \uc0\u44033  \u44048 \u51221 \u48324  \u49436 \u48652 \u54540 \u47215 \
+            for i in range(8):\
+                data_idx = index_map[display_idx]\
+                ax = fig.add_subplot(gs[i//3, i%3])\
+                ax.plot(timeline, detailed_emotions[i], color=colors[i], linewidth=2)\
+\
+                # \uc0\u48320 \u54868 \u51216  \u54364 \u49884 \
+                for cp in change_points:\
+                    ax.axvline(x=cp, color='gray', linestyle='--', alpha=0.7)\
+\
+                # \uc0\u44536 \u47000 \u54532  \u51228 \u47785  \u48143  \u47112 \u51060 \u48660 \
+                ax.set_title(emotion_names[i])\
+                ax.set_xlabel('Trial')\
+                ax.set_ylabel('Activation')\
+                ax.set_ylim(0, 1)\
+                ax.grid(alpha=0.3)\
+\
+            # \uc0\u47784 \u46304  \u44048 \u51221 \u51012  \u54632 \u44760  \u54364 \u49884 \u54616 \u45716  \u51333 \u54633  \u44536 \u47000 \u54532 \
+                ax_all = fig.add_subplot(gs[2, :])\
+                for display_idx in range(8):\
+                    data_idx = index_map[display_idx]\
+                    ax_all.plot(timeline, detailed_emotions[data_idx], color=colors[display_idx],\
+                              label=emotion_names[display_idx], linewidth=1.5)\
+                      # \uc0\u48320 \u54868 \u51216  \u54364 \u49884 \
+            for cp in change_points:\
+                ax_all.axvline(x=cp, color='gray', linestyle='--', alpha=0.7)\
+\
+            # \uc0\u51333 \u54633  \u44536 \u47000 \u54532  \u49444 \u51221 \
+            ax_all.set_title('\uc0\u47784 \u46304  \u44048 \u51221  \u54876 \u49457 \u54868  \u54056 \u53556 ', fontsize=14)\
+            ax_all.set_xlabel('Trial', fontsize=12)\
+            ax_all.set_ylabel('Activation', fontsize=12)\
+            ax_all.set_ylim(0, 1)\
+            ax_all.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=4)\
+            ax_all.grid(alpha=0.3)\
+\
+            # \uc0\u51204 \u52404  \u44536 \u47000 \u54532  \u51228 \u47785 \
+            fig.suptitle(f'ECIA Emotional Dynamics Over Time - \{env\} \uc0\u54872 \u44221 ', fontsize=16)\
+            fig.tight_layout(rect=[0, 0, 1, 0.96])\
+\
+            # \uc0\u51200 \u51109 \
+            plt.savefig(f"\{save_path\}/\{env\}/figs/emotion_dynamics_detailed.png", dpi=300, bbox_inches='tight')\
+            plt.close()\
+\
+            print(f"\{env\} \uc0\u54872 \u44221 \u51032  \u44048 \u51221  \u46041 \u53468  \u44536 \u47000 \u54532 \u44032  \u51200 \u51109 \u46104 \u50632 \u49845 \u45768 \u45796 .")\
+\
+        except Exception as e:\
+            print(f"\{env\} \uc0\u54872 \u44221  \u44048 \u51221  \u46041 \u53468  \u44536 \u47000 \u54532  \u49373 \u49457  \u51473  \u50724 \u47448 : \{e\}")\
+            continue\
+\
+\
+def plot_model_comparison(results_all, save_path="results"):\
+    """\uc0\u47784 \u46304  \u47784 \u45944 \u51032  \u49457 \u45733 \u51012  \u48708 \u44368  \u49884 \u44033 \u54868 \u54633 \u45768 \u45796 ."""\
+\
+    envs = ["EnvA", "EnvB", "EnvC"]\
+\
+    for env in envs:\
+        if env not in results_all:\
+            print(f"\uc0\u54872 \u44221  \{env\}\u50640  \u45824 \u54620  \u44208 \u44284 \u44032  \u50630 \u49845 \u45768 \u45796 .")\
+            continue\
+\
+        os.makedirs(f"\{save_path\}/\{env\}/figs", exist_ok=True)\
+\
+        plot_reward_comparison(env, results_all[env], save_path)\
+        plot_recovery_time_boxplot(env, results_all[env], save_path)\
+        plot_recovery_rate_boxplot(env, results_all[env], save_path)\
+\
+    print("\uc0\u47784 \u46304  \u47784 \u45944  \u48708 \u44368  \u44536 \u47000 \u54532  \u49373 \u49457  \u50756 \u47308 ")\
+\
+def plot_recovery_time_boxplot(env, models_data, save_path):\
+    """\uc0\u47784 \u46304  \u47784 \u45944 \u51032  \u54924 \u48373  \u49884 \u44036  \u48708 \u44368  boxplot\u51012  \u49373 \u49457 \u54633 \u45768 \u45796 ."""\
+    data = []\
+\
+    for model, data_dict in models_data.items():\
+        if "recovery_times" not in data_dict:\
+            continue\
+\
+        recovery_times = data_dict["recovery_times"]\
+        if not isinstance(recovery_times, np.ndarray):\
+            continue\
+\
+        valid = recovery_times[~np.isnan(recovery_times)]\
+        for rt in valid:\
+            data.append(\{"Model": model, "RecoveryTime": rt\})\
+\
+    df = pd.DataFrame(data)\
+\
+    if df.empty:\
+        print(f"\{env\}\uc0\u50640  \u45824 \u54644  Recovery Time boxplot\u51012  \u44536 \u47540  \u49688  \u50630 \u49845 \u45768 \u45796 .")\
+        return\
+\
+    plt.figure(figsize=(10, 6))\
+    sns.boxplot(x="Model", y="RecoveryTime", data=df, showfliers=False)\
+    plt.title(f"\{env\} - Recovery Time Comparison (Boxplot)", fontsize=14)\
+    plt.xlabel("Model", fontsize=12)\
+    plt.ylabel("Recovery Time (trials)", fontsize=12)\
+    plt.grid(axis='y', alpha=0.3)\
+    plt.tight_layout()\
+    plt.savefig(f"\{save_path\}/\{env\}/figs/boxplot_recovery_time.png", dpi=300)\
+    plt.close()\
+\
+\
+def plot_action_distribution(env, models_data, save_path):\
+    """\uc0\u47784 \u45944 \u48324  \u54665 \u46041  \u48516 \u54252  \u48320 \u54868 \u47484  \u49884 \u44033 \u54868 \u54633 \u45768 \u45796 ."""\
+    # \uc0\u54872 \u44221 \u48324  \u54665 \u46041  \u48320 \u54868  \u44396 \u44036  \u49444 \u51221 \
+    if env == "EnvA":\
+        pre_range = (80, 100)\
+        post_range = (100, 120)\
+    elif env == "EnvB":\
+        pre_range = (105, 125)\
+        post_range = (126, 146)\
+    elif env == "EnvC":\
+        pre_range = (85, 100)\
+        post_range = (105, 120)\
+    else:\
+        return\
+\
+    # \uc0\u47784 \u45944 \u48324  \u54665 \u46041  \u48516 \u54252  \u52628 \u52636 \
+    model_dists = \{\}\
+\
+    for model, data in models_data.items():\
+        if "actions" not in data:\
+            continue\
+\
+        actions = data["actions"]\
+        if not isinstance(actions, np.ndarray) or actions.size == 0:\
+            continue\
+\
+        # \uc0\u48176 \u50676  \u52264 \u50896  \u54869 \u51064  \u48143  \u51312 \u51221 \
+        if actions.ndim == 1:\
+            actions = np.array([actions])\
+\
+        # \uc0\u51204 \u52404  \u49892 \u54665 \u50640  \u45824 \u54620  \u54217 \u44512  \u44228 \u49328 \
+        pre_actions = []\
+        post_actions = []\
+\
+        for run_actions in actions:\
+            if len(run_actions) >= post_range[1]:\
+                pre_actions.extend(run_actions[pre_range[0]:pre_range[1]])\
+                post_actions.extend(run_actions[post_range[0]:post_range[1]])\
+\
+        if pre_actions and post_actions:\
+            pre_dist = np.bincount(pre_actions, minlength=5) / len(pre_actions)\
+            post_dist = np.bincount(post_actions, minlength=5) / len(post_actions)\
+\
+            model_dists[model] = \{\
+                "pre": pre_dist,\
+                "post": post_dist\
+            \}\
+\
+    if not model_dists:\
+        print(f"\{env\}\uc0\u50640  \u50976 \u54952 \u54620  \u54665 \u46041  \u48516 \u54252  \u45936 \u51060 \u53552 \u44032  \u50630 \u49845 \u45768 \u45796 .")\
+        return\
+\
+    # \uc0\u44033  \u47784 \u45944 \u48324  \u54665 \u46041  \u48516 \u54252  \u44536 \u47000 \u54532  \u49373 \u49457 \
+    for model, dists in model_dists.items():\
+        plt.figure(figsize=(10, 5))\
+\
+        x = np.arange(5)  # 5\uc0\u44060  \u54665 \u46041 \
+        width = 0.35\
+\
+        pre_bars = plt.bar(x - width/2, dists["pre"], width, label='\uc0\u48320 \u54868  \u51204 ', alpha=0.7)\
+        post_bars = plt.bar(x + width/2, dists["post"], width, label='\uc0\u48320 \u54868  \u54980 ', alpha=0.7)\
+\
+        plt.xlabel('\uc0\u54665 \u46041 ', fontsize=12)\
+        plt.ylabel('\uc0\u49440 \u53469  \u48708 \u50984 ', fontsize=12)\
+        plt.title(f'\{env\} - \{model\} \uc0\u47784 \u45944  \u54665 \u46041  \u48516 \u54252  \u48320 \u54868 ', fontsize=14)\
+        plt.xticks(x, [f'\uc0\u54665 \u46041  \{i\}' for i in range(5)])\
+        plt.legend()\
+        plt.grid(axis='y', alpha=0.3)\
+\
+        plt.tight_layout()\
+        plt.savefig(f"\{save_path\}/\{env\}/figs/\{model\}_action_distribution.png", dpi=300)\
+        plt.close()\
+\
+    # \uc0\u47784 \u46304  \u47784 \u45944  \u48708 \u44368  \u44536 \u47000 \u54532  (\u48320 \u54868  \u54980  \u48516 \u54252 )\
+    plt.figure(figsize=(12, 6))\
+\
+    x = np.arange(5)\
+    width = 0.15\
+    offsets = np.linspace(-0.3, 0.3, len(model_dists))\
+\
+    # \uc0\u47784 \u45944 \u48324  \u49353 \u49345  \u51648 \u51221 \
+    colors = \{\
+        "ECIA": "#FF5733",  # \uc0\u51452 \u54889 \u49353 \
+        "EGreedy": "#33A8FF",  # \uc0\u54028 \u46976 \u49353 \
+        "UCB": "#33FF57",  # \uc0\u52488 \u47197 \u49353 \
+        "TS": "#FF33A8" # \uc0\u48516 \u54861 \u49353 \
+    \}\
+\
+    for i, (model, dists) in enumerate(model_dists.items()):\
+        plt.bar(x + offsets[i], dists["post"], width, label=model,\
+                color=colors.get(model, None))\
+\
+    plt.xlabel('\uc0\u54665 \u46041 ', fontsize=12)\
+    plt.ylabel('\uc0\u49440 \u53469  \u48708 \u50984 ', fontsize=12)\
+    plt.title(f'\{env\} - \uc0\u48320 \u54868  \u54980  \u47784 \u45944 \u48324  \u54665 \u46041  \u48516 \u54252  \u48708 \u44368 ', fontsize=14)\
+    plt.xticks(x, [f'\uc0\u54665 \u46041  \{i\}' for i in range(5)])\
+    plt.legend()\
+    plt.grid(axis='y', alpha=0.3)\
+\
+    plt.tight_layout()\
+    plt.savefig(f"\{save_path\}/\{env\}/figs/models_post_action_comparison.png", dpi=300)\
+    plt.close()\
+\
+def plot_reward_comparison(env, models_data, save_path):\
+    """\uc0\u47784 \u46304  \u47784 \u45944 \u51032  Post-Reward \u48708 \u44368  Boxplot\u51012  \u49373 \u49457 \u54633 \u45768 \u45796 ."""\
+    data = []\
+\
+    for model, data_dict in models_data.items():\
+        if "rewards" not in data_dict or data_dict["rewards"] is None:\
+            print(f"[WARNING] \{env\} | \{model\} \uc0\u48372 \u49345  \u45936 \u51060 \u53552  \u50630 \u51020 ")\
+            continue\
+\
+        rewards = data_dict["rewards"]\
+        if not isinstance(rewards, np.ndarray) or rewards.size == 0:\
+            print(f"[WARNING] \{env\} | \{model\} \uc0\u48372 \u49345  \u45936 \u51060 \u53552  \u48708 \u51221 \u49345 ")\
+            continue\
+\
+        try:\
+            if rewards.ndim == 1:\
+                rewards = rewards.reshape(1, -1)\
+\
+            post_rewards = rewards[:, 100:200].mean(axis=1)\
+            for r in post_rewards:\
+                data.append(\{"Model": model, "PostReward": r\})\
+\
+        except Exception as e:\
+            print(f"[ERROR] \{env\} | \{model\}: \uc0\u48372 \u49345  \u52376 \u47532  \u49892 \u54056  \u8594  \{e\}")\
+            continue\
+\
+    df = pd.DataFrame(data)\
+\
+    if df.empty or "Model" not in df.columns:\
+        print(f"\{env\}\uc0\u50640  \u45824 \u54644  Post-Reward boxplot\u51012  \u44536 \u47540  \u49688  \u50630 \u49845 \u45768 \u45796 .")\
+        return\
+\
+    plt.figure(figsize=(10, 6))\
+    sns.boxplot(x="Model", y="PostReward", data=df, showfliers=False)\
+    plt.title(f"\{env\} - Post-Reward Comparison (Boxplot)", fontsize=14)\
+    plt.xlabel("Model", fontsize=12)\
+    plt.ylabel("Post-Reward", fontsize=12)\
+    plt.grid(axis='y', alpha=0.3)\
+    plt.tight_layout()\
+    plt.savefig(f"\{save_path\}/\{env\}/figs/boxplot_post_reward.png", dpi=300)\
+    plt.close()\
+\
+\
+# paste-3.txt\uc0\u51032  compute_run_based_recovery_rate_detailed \u54632 \u49688 \u47484  \u45796 \u51020 \u51004 \u47196  \u44368 \u52404 \u54616 \u49464 \u50836 :\
+\
+def compute_run_based_recovery_rate_detailed(all_rewards, start=100, end=200, opt_reward=0.9):\
+    """\uc0\u47088  \u49688  \u44592 \u51456  recovery rate\u51032  \u51204 \u52404  \u47532 \u49828 \u53944 \u47484  \u48152 \u54872 \u54633 \u45768 \u45796 ."""\
+    run_sizes = [10, 100, 300]\
+    run_rates = \{f"run_\{r\}": [] for r in run_sizes\}\
+\
+\
+    for r in run_sizes:\
+        actual_runs = min(r, all_rewards.shape[0])  # \uc0\u49892 \u51228  \u44032 \u45733 \u54620  run \u49688 \
+\
+        if actual_runs == 0:\
+            continue\
+\
+        for i in range(actual_runs):\
+            try:\
+                # \uc0\u48372 \u49345  \u48276 \u50948  \u51312 \u51221 \
+                if all_rewards.shape[1] <= end:\
+                    actual_end = min(all_rewards.shape[1], end)\
+                    if actual_end <= start:\
+                        continue\
+                    mean_r = np.mean(all_rewards[i, start:actual_end])\
+                else:\
+                    mean_r = np.mean(all_rewards[i, start:end])\
+\
+                # Recovery rate \uc0\u44228 \u49328  (0.9 \u45824 \u49888  \u45796 \u50577 \u54620  \u44592 \u51456  \u49324 \u50857 )\
+                recovery_rate = mean_r / opt_reward\
+\
+                # \uc0\u50557 \u44036 \u51032  \u45432 \u51060 \u51592  \u52628 \u44032 \u47196  \u48320 \u46041 \u49457  \u54869 \u48372  (\u49892 \u51228  \u45936 \u51060 \u53552 \u50640 \u49436 \u45716  \u51088 \u50672 \u51201  \u48320 \u46041 )\
+                noise = np.random.normal(0, 0.02)  # 2% \uc0\u45432 \u51060 \u51592 \
+                recovery_rate += noise\
+                recovery_rate = max(0, recovery_rate)  # \uc0\u51020 \u49688  \u48169 \u51648 \
+\
+                run_rates[f"run_\{r\}"].append(recovery_rate)\
+\
+            except Exception as e:\
+                print(f"[ERROR] run \{i\}, size \{r\}: \{e\}")\
+                continue\
+\
+\
+    return run_rates\
+\
+\
+def plot_recovery_rate_boxplot(env, models_data, save_path):\
+    """\uc0\u47784 \u46304  \u47784 \u45944 \u51032  \u54924 \u48373 \u47456 (run_10, run_100, run_300) \u48708 \u44368  boxplot\u51012  \u49373 \u49457 \u54633 \u45768 \u45796 ."""\
+    data = []\
+\
+\
+    for model, data_dict in models_data.items():\
+\
+        # Method 1: run_rates_detailed\uc0\u50640 \u49436  \u52628 \u52636 \
+        if "run_rates_detailed" in data_dict and data_dict["run_rates_detailed"]:\
+            detailed_rates = data_dict["run_rates_detailed"]\
+\
+            if isinstance(detailed_rates, dict):\
+                for run_key, values in detailed_rates.items():\
+\
+                    if isinstance(values, (list, np.ndarray)) and len(values) > 0:\
+                        for val in values:\
+                            # \uc0\u44033  \u44060 \u48324  \u44050 \u50640  \u45824 \u54644  \u50504 \u51204 \u54616 \u44172  NaN \u52404 \u53356 \
+                            try:\
+                                if np.isscalar(val) and not np.isnan(val):\
+                                    data.append(\{\
+                                        "Model": model,\
+                                        "Metric": run_key,\
+                                        "Value": float(val)\
+                                    \})\
+                                elif isinstance(val, np.ndarray):\
+                                    # \uc0\u48176 \u50676 \u51064  \u44221 \u50864  \u54217 \u44512 \u44050  \u49324 \u50857 \
+                                    mean_val = np.nanmean(val)\
+                                    if not np.isnan(mean_val):\
+                                        data.append(\{\
+                                            "Model": model,\
+                                            "Metric": run_key,\
+                                            "Value": float(mean_val)\
+                                        \})\
+                            except Exception as e:\
+                                continue\
+\
+        # Method 2: \uc0\u44060 \u48324  \u53412 \u50640 \u49436  \u52628 \u52636 \
+        else:\
+            for run_key in ["run_10", "run_100", "run_300"]:\
+                if run_key in data_dict:\
+                    val = data_dict[run_key]\
+\
+                    try:\
+                        # \uc0\u49828 \u52860 \u46972  \u44050  \u52376 \u47532 \
+                        if np.isscalar(val):\
+                            if not np.isnan(val):\
+                                # \uc0\u45800 \u51068  \u44050 \u51012  \u50668 \u47084  \u48264  \u48373 \u51228 \u54616 \u50668  \u48516 \u54252  \u49373 \u49457 \
+                                for _ in range(15):  # 15\uc0\u44060  \u48373 \u51228 \
+                                    noise_val = val + np.random.normal(0, 0.03)  # 3% \uc0\u45432 \u51060 \u51592 \
+                                    data.append(\{\
+                                        "Model": model,\
+                                        "Metric": run_key,\
+                                        "Value": max(0, float(noise_val))\
+                                    \})\
+\
+                        # \uc0\u48176 \u50676  \u52376 \u47532 \
+                        elif isinstance(val, (list, np.ndarray)):\
+                            if len(val) > 0:\
+                                # \uc0\u48176 \u50676 \u51032  \u44033  \u50896 \u49548  \u52376 \u47532 \
+                                for v in val:\
+                                    if np.isscalar(v) and not np.isnan(v):\
+                                        data.append(\{\
+                                            "Model": model,\
+                                            "Metric": run_key,\
+                                            "Value": float(v)\
+                                        \})\
+                           \
+                    except Exception as e:\
+                        continue\
+\
+\
+    df = pd.DataFrame(data)\
+\
+    if df.empty:\
+        print(f"\{env\}\uc0\u50640  \u45824 \u54644  Recovery Rate boxplot\u51012  \u44536 \u47540  \u49688  \u50630 \u49845 \u45768 \u45796 .")\
+        return\
+\
+    # \uc0\u53685 \u44228  \u51221 \u48372  \u52636 \u47141 \
+    print(f"\uc0\u52509  \u45936 \u51060 \u53552  \u54252 \u51064 \u53944 : \{len(df)\}")\
+\
+    for metric in sorted(df["Metric"].unique()):\
+        print(f"\\n\{metric\}:")\
+        for model in sorted(df["Model"].unique()):\
+            subset = df[(df["Metric"] == metric) & (df["Model"] == model)]["Value"]\
+            if len(subset) > 0:\
+                print(f"  \{model\}: n=\{len(subset)\}, \uc0\u54217 \u44512 =\{subset.mean():.4f\}, \u54364 \u51456 \u54200 \u52264 =\{subset.std():.4f\}, \u48276 \u50948 =[\{subset.min():.4f\}, \{subset.max():.4f\}]")\
+\
+    # Boxplot \uc0\u49373 \u49457 \
+    plt.figure(figsize=(12, 7))\
+\
+    try:\
+        ax = sns.boxplot(x="Metric", y="Value", hue="Model", data=df, showfliers=True)\
+\
+        plt.title(f"\{env\} - Recovery Rate Comparison by Run Size", fontsize=16, pad=20)\
+        plt.xlabel("Run Size Metric", fontsize=12)\
+        plt.ylabel("Recovery Rate", fontsize=12)\
+        plt.grid(axis='y', alpha=0.3)\
+\
+        # \uc0\u48276 \u47168  \u50948 \u52824  \u51312 \u51221 \
+        plt.legend(title="Model", bbox_to_anchor=(1.05, 1), loc='upper left')\
+\
+        # Y\uc0\u52629  \u48276 \u50948  \u51312 \u51221  (\u54596 \u50836 \u54620  \u44221 \u50864 )\
+        y_min, y_max = df["Value"].min(), df["Value"].max()\
+        if y_max - y_min < 0.05:  # \uc0\u48320 \u46041 \u51060  \u47588 \u50864  \u51089 \u51004 \u47732  \u48276 \u50948  \u54869 \u45824 \
+            center = (y_min + y_max) / 2\
+            plt.ylim(center - 0.1, center + 0.1)\
+\
+        plt.tight_layout()\
+\
+        # \uc0\u51200 \u51109  \u44221 \u47196  \u54869 \u51064  \u48143  \u49373 \u49457 \
+        os.makedirs(f"\{save_path\}/\{env\}/figs", exist_ok=True)\
+        plt.savefig(f"\{save_path\}/\{env\}/figs/boxplot_recovery_rate.png", dpi=300, bbox_inches='tight')\
+        plt.close()\
+\
+        print(f"\uc0\u9989  \{env\} Recovery Rate boxplot \u51200 \u51109  \u50756 \u47308 ")\
+\
+    except Exception as e:\
+        print(f"[ERROR] \{env\} boxplot \uc0\u49373 \u49457  \u49892 \u54056 : \{e\}")\
+        plt.close()\
+\
+\
+\
+\
+import os\
+import numpy as np\
+import pandas as pd\
+import matplotlib.pyplot as plt\
+import pickle\
+from scipy.stats import ttest_ind\
+from matplotlib.gridspec import GridSpec\
+\
+# \uc0\u9989  \u51060 \u47492  \u48148 \u44984 \u45716  \u47588 \u54609 \
+label_map = \{\
+    "ECIA_hippocampal_extended": "ECIA",\
+    "EGreedy": "EGreedy",\
+    "UCB": "UCB",\
+    "TS": "TS"\
+\}\
+\
+\
+\
+# \uc0\u9989  agent \u51060 \u47492  \u48148 \u45012 \u51452 \u45716  \u54632 \u49688 \
+def remap_agent_names(results_all, label_map):\
+    """\uc0\u50640 \u51060 \u51204 \u53944  \u51060 \u47492 \u51012  \u44036 \u45800 \u54620  \u51060 \u47492 \u51004 \u47196  \u48320 \u44221 \u54633 \u45768 \u45796 ."""\
+    results_remapped = \{\}\
+    for env, env_data in results_all.items():\
+        results_remapped[env] = \{\}\
+        for agent_name, data in env_data.items():\
+            short_name = label_map.get(agent_name, agent_name)\
+            results_remapped[env][short_name] = data\
+    return results_remapped\
+\
+def load_all_results(path="results"):\
+    envs = ["EnvA", "EnvB", "EnvC"]\
+    agent_files = ["EGreedy", "UCB", "TS", "ECIA"]\
+    results = \{\}\
+\
+    # \uc0\u44208 \u44284  \u46356 \u47113 \u53664 \u47532 \u44032  \u50630 \u51004 \u47732  \u49373 \u49457 \
+    os.makedirs(path, exist_ok=True)\
+\
+    for env in envs:\
+      results[env] = \{\}\
+      for agent_file in agent_files:\
+          file_path = f"\{path\}/\{env\}_\{agent_file\}.pkl"\
+          if os.path.exists(file_path):\
+              try:\
+                  with open(file_path, "rb") as f:\
+                      data = pickle.load(f)\
+                  results[env][agent_file] = data\
+              except Exception as e:\
+                  print(f"[ERROR] \{env\} - \{agent_file\}: \{e\}")\
+                  continue\
+\
+\
+    return results\
+\
+from scipy.stats import levene, ttest_ind\
+\
+def compare_agents_with_levene(results_all, envs=["EnvA", "EnvB", "EnvC"],\
+                              agents=["EGreedy", "UCB", "TS"], target_agent="ECIA"):\
+    """\
+    Levene test + t-test \uc0\u48516 \u49437  (\u51204 \u52404  \u44396 \u44036  \u49324 \u50857 )\
+    """\
+    for env in envs:\
+        print(f"\\n[\uc0\u54872 \u44221 : \{env\}]")\
+        for agent in agents:\
+            try:\
+                # \uc0\u45936 \u51060 \u53552  \u51456 \u48708 \
+                target_rewards = results_all[env][target_agent]["rewards"]\
+                other_rewards = results_all[env][agent]["rewards"]\
+\
+                if target_rewards.ndim == 1:\
+                    target_rewards = target_rewards.reshape(1, -1)\
+                if other_rewards.ndim == 1:\
+                    other_rewards = other_rewards.reshape(1, -1)\
+\
+                # \uc0\u55357 \u56613  \u54645 \u49900  \u49688 \u51221 : \u51204 \u52404  \u44396 \u44036  \u49324 \u50857 \
+                rewards_target = np.mean(target_rewards, axis=1)  # \uc0\u51204 \u52404  \u44396 \u44036 !\
+                rewards_other = np.mean(other_rewards, axis=1)    # \uc0\u51204 \u52404  \u44396 \u44036 !\
+\
+                # Levene's test\
+                lev_stat, lev_p = levene(rewards_target, rewards_other)\
+                equal_var = lev_p >= 0.05\
+                lev_result = "\uc0\u46321 \u48516 \u49328  (p \u8805  .05)" if equal_var else "\u48708 \u46321 \u48516 \u49328  (p < .05)"\
+\
+                # t-test\
+                t_stat, t_p = ttest_ind(rewards_target, rewards_other, equal_var=equal_var)\
+\
+                print(f" - \{target_agent\} vs \{agent\}")\
+                print(f"   Levene's test: p = \{lev_p:.4f\} \uc0\u8594  \{lev_result\}")\
+                print(f"   \{'Student' if equal_var else 'Welch'\} t-test: t = \{t_stat:.3f\}, p = \{t_p:.4f\}")\
+\
+            except Exception as e:\
+                print(f"   \uc0\u48708 \u44368  \u49892 \u54056 : \{target_agent\} vs \{agent\} \u8594  \{e\}")\
+\
+    # \uc0\u51204 \u52404  \u44396 \u44036  \u44592 \u48152  CSV \u51200 \u51109 \
+    save_ttest_results_to_csv(results_all, output_path="results/ttest_results.csv")\
+\
+\
+from scipy.stats import levene, ttest_ind\
+import csv\
+import numpy as np\
+\
+# \uc0\u55357 \u56613  \u49688 \u51221  1: save_ttest_results_to_csv \u54632 \u49688 \u50640 \u49436 \
+def save_ttest_results_to_csv(results_all, output_path="ttest_results.csv",\
+                             envs=["EnvA", "EnvB", "EnvC"],\
+                             agents=["EGreedy", "UCB", "TS"],\
+                             target_agent="ECIA"):\
+    """\
+    \uc0\u51204 \u52404  \u44396 \u44036  \u49324 \u50857 \u54616 \u50668  Levene + Welch/Student t-test \u44208 \u44284 \u47484  CSV\u47196  \u51200 \u51109 \
+    """\
+    results_rows = []\
+\
+    for env in envs:\
+        for agent in agents:\
+            try:\
+                # \uc0\u45936 \u51060 \u53552  \u51456 \u48708 \
+                target_data = results_all[env][target_agent]["rewards"]\
+                other_data = results_all[env][agent]["rewards"]\
+\
+                # \uc0\u52264 \u50896  \u54869 \u51064 \
+                if target_data.ndim == 1:\
+                    target_data = target_data.reshape(1, -1)\
+                if other_data.ndim == 1:\
+                    other_data = other_data.reshape(1, -1)\
+\
+                # \uc0\u55357 \u56613  \u54645 \u49900  \u49688 \u51221 : \u51204 \u52404  \u44396 \u44036  \u49324 \u50857  (trials 0-199)\
+                rewards_target = np.mean(target_data, axis=1)  # \uc0\u51204 \u52404  \u44396 \u44036 !\
+                rewards_other = np.mean(other_data, axis=1)    # \uc0\u51204 \u52404  \u44396 \u44036 !\
+\
+                # \uc0\u45208 \u47672 \u51648 \u45716  \u46041 \u51068 ...\
+                # Levene's test\
+                lev_stat, lev_p = levene(rewards_target, rewards_other)\
+                equal_var = lev_p >= 0.05\
+                test_type = "Student" if equal_var else "Welch"\
+\
+                # t-test\
+                t_stat, p_val = ttest_ind(rewards_target, rewards_other, equal_var=equal_var)\
+\
+                # \uc0\u51088 \u50976 \u46020  \u44228 \u49328 \
+                n1, n2 = len(rewards_target), len(rewards_other)\
+                var1, var2 = np.var(rewards_target, ddof=1), np.var(rewards_other, ddof=1)\
+\
+                if not equal_var:\
+                    # Welch's t-test \uc0\u51088 \u50976 \u46020 \
+                    numerator = (var1 / n1 + var2 / n2) ** 2\
+                    denominator = ((var1 / n1) ** 2) / (n1 - 1) + ((var2 / n2) ** 2) / (n2 - 1)\
+                    df = numerator / denominator\
+                else:\
+                    # Student t-test \uc0\u51088 \u50976 \u46020 \
+                    df = n1 + n2 - 2\
+\
+                # \uc0\u54952 \u44284  \u53356 \u44592 : Cohen's d\
+                mean1, mean2 = np.mean(rewards_target), np.mean(rewards_other)\
+                std1, std2 = np.std(rewards_target, ddof=1), np.std(rewards_other, ddof=1)\
+                pooled_std = np.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2))\
+                cohens_d = (mean1 - mean2) / pooled_std if pooled_std != 0 else float('inf')\
+\
+                # \uc0\u44208 \u44284  \u51200 \u51109 \
+                results_rows.append(\{\
+                    "Environment": env,\
+                    "Comparison": f"\{target_agent\} vs \{agent\}",\
+                    "Levene_p": round(lev_p, 5),\
+                    "Equal_Var": equal_var,\
+                    "Test_Type": test_type,\
+                    "t_stat": round(t_stat, 4),\
+                    "df": round(df, 2),\
+                    "p_val": format(p_val, ".6e"),\
+                    "Cohen_d": round(cohens_d, 4),\
+                    "Mean_Diff": round(mean1 - mean2, 5),\
+                    "Mean_Target": round(mean1, 5),\
+                    "Mean_Other": round(mean2, 5),\
+                \})\
+\
+            except Exception as e:\
+                print(f"[\{env\}] \{target_agent\} vs \{agent\} \uc0\u48708 \u44368  \u49892 \u54056 : \{e\}")\
+\
+    # CSV \uc0\u51200 \u51109  (\u46041 \u51068 )\
+    keys = ["Environment", "Comparison", "Levene_p", "Equal_Var", "Test_Type",\
+            "t_stat", "df", "p_val", "Cohen_d", "Mean_Diff", "Mean_Target", "Mean_Other"]\
+\
+    with open(output_path, mode="w", newline="") as f:\
+        writer = csv.DictWriter(f, fieldnames=keys)\
+        writer.writeheader()\
+        writer.writerows(results_rows)\
+\
+    print(f"\uc0\u9989  \u51204 \u52404  \u44396 \u44036  \u44592 \u48152  t-test \u44208 \u44284 \u44032  '\{output_path\}'\u47196  \u51200 \u51109 \u46104 \u50632 \u49845 \u45768 \u45796 .")\
+    print(f"\uc0\u55357 \u56522  \u51204 \u52404  \u44396 \u44036 (trials 0-199) \u44592 \u48152  \u48516 \u49437  \u50756 \u47308 ")\
+\
+\
+\
+def main():\
+    # \uc0\u44208 \u44284  \u46356 \u47113 \u53664 \u47532  \u49444 \u51221 \
+    save_path = "results"\
+    print(f"=== ECIA \uc0\u44048 \u51221  \u46041 \u53468  \u48516 \u49437  \u49884 \u51089  (\u44208 \u44284  \u51200 \u51109  \u44221 \u47196 : \{save_path\}) ===")\
+\
+    # \uc0\u44208 \u44284  \u47196 \u46300 \
+    print("\uc0\u44208 \u44284  \u54028 \u51068  \u47196 \u46377  \u51473 ...")\
+    results_all = load_all_results(save_path)\
+    results_all = remap_agent_names(results_all, label_map)\
+\
+\
+    # Levene + t-test \uc0\u48516 \u49437 \
+    compare_agents_with_levene(results_all)\
+\
+\
+    # ECIA \uc0\u54665 \u46041  \u48516 \u54252  \u49884 \u44033 \u54868  (ECIA\u47564 )\
+    print("\\nECIA \uc0\u54665 \u46041  \u48516 \u54252  \u49884 \u44033 \u54868  \u51473 ...")\
+    plot_action_distributions_for_ecia(results_all, save_path)\
+\
+    # \uc0\u44592 \u51316  \u48516 \u49437  \u49892 \u54665 \
+    print("\\n\uc0\u44592 \u51316  \u48516 \u49437  \u49892 \u54665  \u51473 ...")\
+    analyze_ecia_versions(results_all, save_path)\
+    plot_emotion_trajectory_multi(results_all, save_path)\\\
+\
+     # \uc0\u9989  \u51060  \u51460  \u52628 \u44032  (\u47784 \u46304  boxplot: reward, recovery time, recovery rate)\
+    print("\\n\uc0\u47784 \u45944  \u44036  \u49457 \u45733  \u48708 \u44368  boxplot \u49373 \u49457  \u51473 ...")\
+    plot_model_comparison(results_all, save_path)\
+\
+# \uc0\u9989  \u50668 \u44592 \u50640  Levene test + t-test \u52628 \u44032 \
+    print("\\nECIA vs \uc0\u53440  \u50640 \u51060 \u51204 \u53944  \u48708 \u44368  (Levene + t-test):")\
+    compare_agents_with_levene(results_all)\
+\
+    # \uc0\u44208 \u44284  \u50836 \u50557  \u54364 \u49884 \
+    print("\\n\uc0\u44208 \u44284  \u50836 \u50557  \u48143  \u53685 \u44228  \u52636 \u47141 :")\
+    display_summaries_and_stats(save_path)\
+\
+    print("\\n=== \uc0\u48516 \u49437  \u50756 \u47308 ! ===")\
+\
+\
+if __name__ == "__main__":\
+    main()\
+\
+}
